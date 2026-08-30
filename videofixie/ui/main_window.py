@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from videofixie.domain.backends import bundled_processing_backends
 from videofixie.domain.jobs import TestSegment, TestSegmentKind
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets
@@ -49,6 +50,11 @@ class MainWindow(QMainWindow):
         self.source_path: Path | None = None
         self.profiles = self.service.profiles()
         self.output_presets = self.service.output_presets() if hasattr(self.service, "output_presets") else bundled_output_presets()
+        self.processing_backends = (
+            self.service.processing_backends()
+            if hasattr(self.service, "processing_backends")
+            else bundled_processing_backends()
+        )
         self.settings = self.service.load_settings() if hasattr(self.service, "load_settings") else AppSettings()
         self.profile_summary_text = ""
         self._syncing_segment_controls = False
@@ -287,7 +293,14 @@ class MainWindow(QMainWindow):
             self.load_source(Path(path))
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.settings, self.profiles, self.output_presets, self.environment, self)
+        dialog = SettingsDialog(
+            self.settings,
+            self.profiles,
+            self.output_presets,
+            self.environment,
+            self,
+            processing_backends=self.processing_backends,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.settings = dialog.settings()
@@ -957,7 +970,7 @@ class MainWindow(QMainWindow):
             environment=self.environment,
             profile=self._selected_profile(),
             output_preset=self._selected_output_preset(),
-            profile_summary=self.profile_summary_text,
+            profile_summary=f"Backend: {self.settings.active_backend_slug}\n{self.profile_summary_text}",
             command_log=self.command_text.toPlainText(),
         )
 

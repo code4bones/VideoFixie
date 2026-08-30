@@ -5,6 +5,11 @@ from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
 from videofixie.backends.video2x import Video2XAdapter
+from videofixie.domain.backends import (
+    VIDEO2X_BACKEND_SLUG,
+    ProcessingBackendDescriptor,
+    bundled_processing_backends,
+)
 from videofixie.domain.jobs import ProcessingJob, TestSegment
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets, preview_output_preset
@@ -69,6 +74,9 @@ class VideoFixieService:
     def output_presets(self) -> tuple[OutputPreset, ...]:
         return bundled_output_presets()
 
+    def processing_backends(self) -> tuple[ProcessingBackendDescriptor, ...]:
+        return bundled_processing_backends()
+
     def load_settings(self) -> AppSettings:
         return self.settings_store.load()
 
@@ -114,6 +122,8 @@ class VideoFixieService:
         device_index: int | None = None,
         output_preset: OutputPreset | None = None,
     ) -> PlannedPreview:
+        settings = self.load_settings()
+        _ensure_implemented_backend(settings.active_backend_slug)
         environment = self.discover_environment()
         if not environment.ffmpeg.available or environment.ffmpeg.path is None:
             raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
@@ -140,6 +150,7 @@ class VideoFixieService:
             video2x=Video2XAdapter(environment.video2x.path),
             capabilities=environment.video2x_capabilities,
             output_preset=selected_output_preset,
+            backend_slug=settings.active_backend_slug,
         )
 
         return PlannedPreview(
@@ -162,6 +173,8 @@ class VideoFixieService:
         device_index: int | None = None,
         output_preset: OutputPreset | None = None,
     ) -> PlannedPreview:
+        settings = self.load_settings()
+        _ensure_implemented_backend(settings.active_backend_slug)
         if not environment.ffmpeg.available or environment.ffmpeg.path is None:
             raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
         if not environment.ffprobe.available or environment.ffprobe.path is None:
@@ -186,6 +199,7 @@ class VideoFixieService:
             video2x=Video2XAdapter(environment.video2x.path),
             capabilities=environment.video2x_capabilities,
             output_preset=selected_output_preset,
+            backend_slug=settings.active_backend_slug,
         )
 
         return PlannedPreview(
@@ -196,3 +210,8 @@ class VideoFixieService:
             segment=segment,
             job=job,
         )
+
+
+def _ensure_implemented_backend(active_backend_slug: str) -> None:
+    if active_backend_slug != VIDEO2X_BACKEND_SLUG:
+        raise RuntimeError(f"Processing backend is not implemented yet: {active_backend_slug}")

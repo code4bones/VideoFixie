@@ -32,6 +32,38 @@ class VideoFixieServiceTest(unittest.TestCase):
 
             self.assertEqual(service.load_settings(), settings)
 
+    def test_plan_preview_rejects_unimplemented_active_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings(active_backend_slug="vapoursynth"))
+            service = VideoFixieService(settings_store=store)
+            environment = MachineEnvironment(
+                ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+                ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+                video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+                video2x_capabilities=None,
+                preferred_gpu=None,
+            )
+            media = MediaInfo(
+                path="samples/1.mp4",
+                format_name="mp4",
+                duration_seconds=60,
+                bit_rate=100,
+                size_bytes=1000,
+                video_streams=(),
+                audio_streams=(),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "not implemented yet: vapoursynth"):
+                service.plan_preview_with_context(
+                    "samples/1.mp4",
+                    "cache/previews",
+                    bundled_profiles()[0],
+                    TestSegment("Face", 1, 6),
+                    media=media,
+                    environment=environment,
+                )
+
     def test_history_facade_saves_segment_and_preview_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             history = VideoFixieHistory(Path(tmp_dir) / "history.sqlite3")

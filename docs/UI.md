@@ -172,6 +172,7 @@ Do not replace the raw backend message; retain it in the log.
 
 ## Settings
 Application settings should include:
+- active processing backend;
 - Video2X executable/AppImage path;
 - FFmpeg/ffprobe paths or auto-detection;
 - preferred GPU;
@@ -181,5 +182,7 @@ Application settings should include:
 - default processing profile;
 - default output preset;
 - cache cleanup policy.
+
+Backend-specific controls should be visible only for the selected backend. Initially, Video2X exposes its executable/AppImage path and preferred Vulkan GPU.
 
 On first run, run a lightweight environment check and clearly show missing dependencies.

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
@@ -69,3 +70,18 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("compact", job.output_path.name)
         self.assertIn("libx265", argv)
         self.assertIn("crf=24", argv)
+
+    def test_build_test_segment_job_rejects_incompatible_backend_profile(self) -> None:
+        profile = replace(bundled_profiles()[0], compatible_backend_slugs=("vapoursynth",))
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaisesRegex(ValueError, "not compatible with backend video2x"):
+                build_test_segment_job(
+                    source_path="samples/1.mp4",
+                    work_dir=Path(tmp_dir),
+                    profile=profile,
+                    segment=TestSegment("Preview", 0, 5, TestSegmentKind.CUSTOM),
+                    device_index=0,
+                    ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
+                    video2x=Video2XAdapter("video2x"),
+                    backend_slug="video2x",
+                )

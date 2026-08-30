@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG, normalize_backend_slug
+
 
 @dataclass(frozen=True)
 class AppSettings:
+    active_backend_slug: str = VIDEO2X_BACKEND_SLUG
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
     video2x_path: str | None = None
@@ -26,6 +29,9 @@ class AppSettings:
             if key in data:
                 values[key] = data[key]
         return cls(
+            active_backend_slug=normalize_backend_slug(
+                _required_text(values["active_backend_slug"], defaults.active_backend_slug)
+            ),
             ffmpeg_path=_optional_text(values["ffmpeg_path"]),
             ffprobe_path=_optional_text(values["ffprobe_path"]),
             video2x_path=_optional_text(values["video2x_path"]),

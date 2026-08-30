@@ -166,6 +166,19 @@ The GUI exposes named output presets instead of requiring raw CRF choices first.
 - Archive: very high-quality H.264, larger files expected.
 
 Restoration profiles control AI/model/scale/noise behavior. Output presets control codec/CRF/encoder preset and stream-copy policy.
+Profiles also declare compatible processing backends. The first bundled profiles target Video2X; future VapourSynth profiles should be explicit rather than being routed through Video2X by accident.
+
+## VapourSynth notes
+VapourSynth is tracked as a future backend, not as a Video2X replacement inside the same adapter. On Linux, prefer detecting an installed Python/VapourSynth runtime and `vspipe` path. The preferred install path for VideoFixie is the official pip flow:
+
+```text
+pip install vapoursynth
+vapoursynth config
+```
+
+Reference: `https://vapoursynth.com/doc/installation.html`
+
+Windows portable archives are useful as references but should not be treated as a Linux runtime.
 
 ## Output resolution
 Do not force every source to 1920x1080.

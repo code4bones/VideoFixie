@@ -14,6 +14,7 @@ venv/
 *.db
 
 bin/
+lib/
 samples/
 outputs/
 cache/

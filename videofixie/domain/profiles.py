@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG
+
 
 @dataclass(frozen=True)
 class ProcessingProfile:
@@ -12,7 +14,11 @@ class ProcessingProfile:
     model: str
     scale: int | None
     noise_level: int | None
+    compatible_backend_slugs: tuple[str, ...] = (VIDEO2X_BACKEND_SLUG,)
     experimental: bool = False
+
+    def supports_backend(self, backend_slug: str) -> bool:
+        return backend_slug in self.compatible_backend_slugs
 
 
 def bundled_profiles() -> tuple[ProcessingProfile, ...]:

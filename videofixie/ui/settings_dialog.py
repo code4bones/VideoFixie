@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -13,6 +14,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from videofixie.domain.backends import (
+    VIDEO2X_BACKEND_SLUG,
+    ProcessingBackendDescriptor,
+    bundled_processing_backends,
+)
 from videofixie.domain.output_presets import OutputPreset
 from videofixie.domain.profiles import ProcessingProfile
 from videofixie.domain.settings import AppSettings
@@ -27,14 +33,28 @@ class SettingsDialog(QDialog):
         output_presets: tuple[OutputPreset, ...],
         environment: MachineEnvironment | None,
         parent: QWidget | None = None,
+        *,
+        processing_backends: tuple[ProcessingBackendDescriptor, ...] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.resize(720, 360)
+        self.processing_backends = processing_backends or bundled_processing_backends()
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
         layout.addLayout(form)
+
+        self.backend_combo = QComboBox()
+        for backend in self.processing_backends:
+            self.backend_combo.addItem(backend.name, backend.slug)
+        backend_index = self.backend_combo.findData(settings.active_backend_slug)
+        if backend_index < 0:
+            self.backend_combo.addItem(f"{settings.active_backend_slug} (not available)", settings.active_backend_slug)
+            backend_index = self.backend_combo.findData(settings.active_backend_slug)
+        if backend_index >= 0:
+            self.backend_combo.setCurrentIndex(backend_index)
+        form.addRow("Processing backend", self.backend_combo)
 
         self.ffmpeg_path_edit = QLineEdit(settings.ffmpeg_path or "")
         self.ffprobe_path_edit = QLineEdit(settings.ffprobe_path or "")
@@ -45,10 +65,14 @@ class SettingsDialog(QDialog):
 
         form.addRow("FFmpeg", self._file_path_row(self.ffmpeg_path_edit))
         form.addRow("FFprobe", self._file_path_row(self.ffprobe_path_edit))
-        form.addRow("Video2X", self._file_path_row(self.video2x_path_edit))
         form.addRow("Output directory", self._directory_path_row(self.output_directory_edit))
         form.addRow("Cache directory", self._directory_path_row(self.cache_directory_edit))
         form.addRow("Managed models directory", self._directory_path_row(self.models_directory_edit))
+
+        self.video2x_group = QGroupBox("Video2X")
+        video2x_form = QFormLayout(self.video2x_group)
+        layout.addWidget(self.video2x_group)
+        video2x_form.addRow("Executable/AppImage", self._file_path_row(self.video2x_path_edit))
 
         self.gpu_combo = QComboBox()
         self.gpu_combo.addItem("Auto", None)
@@ -60,7 +84,7 @@ class SettingsDialog(QDialog):
         gpu_index = self.gpu_combo.findData(settings.preferred_gpu_index)
         if gpu_index >= 0:
             self.gpu_combo.setCurrentIndex(gpu_index)
-        form.addRow("Preferred GPU", self.gpu_combo)
+        video2x_form.addRow("Preferred GPU", self.gpu_combo)
 
         self.default_profile_combo = QComboBox()
         for profile in profiles:
@@ -82,19 +106,25 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.backend_combo.currentIndexChanged.connect(self._update_backend_controls)
+        self._update_backend_controls()
 
     def settings(self) -> AppSettings:
         return AppSettings(
+            active_backend_slug=str(self.backend_combo.currentData() or VIDEO2X_BACKEND_SLUG),
             ffmpeg_path=_optional_text(self.ffmpeg_path_edit.text()),
             ffprobe_path=_optional_text(self.ffprobe_path_edit.text()),
             video2x_path=_optional_text(self.video2x_path_edit.text()),
             output_directory=_required_text(self.output_directory_edit.text(), "outputs"),
             cache_directory=_required_text(self.cache_directory_edit.text(), "cache"),
             models_directory=_required_text(self.models_directory_edit.text(), "models"),
-            preferred_gpu_index=self.gpu_combo.currentData(),
+            preferred_gpu_index=_optional_int(self.gpu_combo.currentData()),
             default_profile_slug=str(self.default_profile_combo.currentData()),
             default_output_preset_slug=str(self.default_output_combo.currentData()),
         )
+
+    def _update_backend_controls(self) -> None:
+        self.video2x_group.setVisible(self.backend_combo.currentData() == VIDEO2X_BACKEND_SLUG)
 
     def _file_path_row(self, line_edit: QLineEdit) -> QWidget:
         return self._path_row(line_edit, browse=lambda: self._browse_file(line_edit))
@@ -131,3 +161,9 @@ def _optional_text(value: str) -> str | None:
 def _required_text(value: str, fallback: str) -> str:
     text = _optional_text(value)
     return text if text is not None else fallback
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)

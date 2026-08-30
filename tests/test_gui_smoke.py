@@ -166,6 +166,7 @@ class GuiSmokeTest(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
 
         from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG, bundled_processing_backends
         from videofixie.domain.jobs import ProcessingJob
         from videofixie.domain.media import MediaInfo
         from videofixie.domain.profiles import bundled_profiles
@@ -173,6 +174,7 @@ class GuiSmokeTest(unittest.TestCase):
         from videofixie.services.app import PlannedPreview
         from videofixie.services.environment import MachineEnvironment, ToolStatus
         from videofixie.ui.main_window import MainWindow
+        from videofixie.ui.settings_dialog import SettingsDialog
 
         app = QApplication.instance() or QApplication([])
         profiles = bundled_profiles()
@@ -211,6 +213,7 @@ class GuiSmokeTest(unittest.TestCase):
 
             def load_settings(self):
                 return AppSettings(
+                    active_backend_slug=VIDEO2X_BACKEND_SLUG,
                     cache_directory="scratch",
                     models_directory="models",
                     default_profile_slug="balanced-realcugan-x2",
@@ -250,6 +253,18 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.profile_combo.currentData(), "balanced-realcugan-x2")
         self.assertEqual(window.output_combo.currentData(), "balanced")
         self.assertEqual(str(service.work_dir), "scratch/previews")
+
+        dialog = SettingsDialog(
+            window.settings,
+            window.profiles,
+            window.output_presets,
+            window.environment,
+            processing_backends=bundled_processing_backends(),
+        )
+        app.processEvents()
+
+        self.assertEqual(dialog.backend_combo.currentData(), VIDEO2X_BACKEND_SLUG)
+        self.assertFalse(dialog.video2x_group.isHidden())
 
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
