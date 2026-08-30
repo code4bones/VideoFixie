@@ -67,6 +67,12 @@ Preview cuts and result history are persisted in a local SQLite database:
 By default the database lives in the current working directory as `./videofixie.sqlite3`.
 The preferred local Video2X layout is `./bin/video2x` for the executable and `./share/video2x/models` for model files. AppImage is not auto-detected because its embedded models depend on mount-time path behavior; use an explicit Settings path only for manual experiments. Managed model downloads should use the configured models directory, defaulting to `./share/video2x/models`, not `$HOME`.
 
+If `./bin/Video2X-x86_64.AppImage` is available, bootstrap an inspectable local runtime with:
+
+```bash
+python3 scripts/bootstrap_video2x_runtime.py --force
+```
+
 Run deterministic tests with:
 
 ```bash

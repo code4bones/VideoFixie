@@ -15,6 +15,7 @@ venv/
 
 bin/
 lib/
+share/
 samples/
 outputs/
 cache/

@@ -229,4 +229,12 @@ Video2X 6.4 has no documented `--model-dir` option and resolves model files thro
 
 Do not auto-detect `Video2X-x86_64.AppImage` as the default Video2X executable. AppImage can still be configured manually for experiments, but the normal project-local runtime should be unpacked and inspectable.
 
+When only the AppImage is available locally, run:
+
+```bash
+python3 scripts/bootstrap_video2x_runtime.py --force
+```
+
+The bootstrap step extracts the AppImage into ignored local runtime files under `./share/video2x`, creates `./share/video2x/models` as a symlink to the extracted model directory, and writes `./bin/video2x` as a wrapper. This is an explicit setup operation, not GUI startup behavior.
+
 Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`.
