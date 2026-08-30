@@ -820,6 +820,35 @@ class GuiSmokeTest(unittest.TestCase):
         app.processEvents()
         self.assertEqual(toggle_calls, ["toggle"])
 
+        window.processed_output_path = Path("samples/1.mp4")
+        window.processed_segment = TestSegment("Preview", 10.0, 20.0, TestSegmentKind.CUSTOM)
+        window._active_player_is_playing = lambda: True
+        window._source_time_for_fullscreen_widget = lambda watched: 14.0
+        processed_seek_calls = []
+        resume_calls = []
+        window._seek_processed_from_source_time = lambda seconds: processed_seek_calls.append(seconds)
+        window._resume_fullscreen_player = lambda widget: resume_calls.append(widget)
+        tab_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(window.video_widget, tab_event)
+        app.processEvents()
+        self.assertFalse(window.video_widget.isFullScreen())
+        self.assertTrue(window.processed_video_widget.isFullScreen())
+        self.assertEqual(window.tabs.currentIndex(), 1)
+        self.assertEqual(processed_seek_calls[-1], 14.0)
+        self.assertIs(resume_calls[-1], window.processed_video_widget)
+
+        window._source_time_for_fullscreen_widget = lambda watched: 15.0
+        timeline_seek_calls = []
+        window._set_timeline_playhead = lambda seconds: timeline_seek_calls.append(seconds)
+        tab_back_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(window.processed_video_widget, tab_back_event)
+        app.processEvents()
+        self.assertFalse(window.processed_video_widget.isFullScreen())
+        self.assertTrue(window.video_widget.isFullScreen())
+        self.assertEqual(window.tabs.currentIndex(), 0)
+        self.assertEqual(timeline_seek_calls[-1], 15.0)
+        self.assertIs(resume_calls[-1], window.video_widget)
+
         event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(window.video_widget, event)
         app.processEvents()
@@ -853,6 +882,13 @@ class GuiSmokeTest(unittest.TestCase):
         QApplication.sendEvent(window.large_split_window, split_space_event)
         app.processEvents()
         self.assertEqual(split_toggle_calls, ["toggle"])
+
+        window.large_split_window.original_player.position = lambda: 16_000
+        split_tab_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(window.large_split_window, split_tab_event)
+        app.processEvents()
+        self.assertEqual(window.large_split_window._last_source_seek_ms, 16_000)
+        self.assertEqual(window.large_split_window._last_processed_seek_ms, 6_000)
 
         window.open_large_view()
         app.processEvents()

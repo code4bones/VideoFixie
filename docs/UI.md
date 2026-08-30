@@ -142,6 +142,10 @@ At minimum support:
 - resizable large side-by-side window for Split comparison
 - Video2X variant comparison grid for the current test segment
 
+In single-video Large View, `Tab` toggles Original and Processed/Variant output at the same source
+time and preserves play/pause state. In large Split comparison, `Tab` keeps both panes visible and
+re-syncs them to the current frame.
+
 Desired later:
 - draggable split/wipe;
 - synchronized zoom;

@@ -779,6 +779,8 @@ class MainWindow(QMainWindow):
             if widget is not None
         )
         if watched in fullscreen_widgets and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Tab and watched.isFullScreen():
+                return self._toggle_fullscreen_ab_view(watched)
             if event.key() == Qt.Key.Key_Space and watched.isFullScreen():
                 self.toggle_playback()
                 return True
@@ -789,6 +791,48 @@ class MainWindow(QMainWindow):
                     self._update_large_view_state()
                     return True
         return super().eventFilter(watched, event)
+
+    def _toggle_fullscreen_ab_view(self, watched) -> bool:
+        if self.source_path is None or self.processed_output_path is None or self.processed_segment is None:
+            return False
+        was_playing = self._active_player_is_playing()
+        source_time = self._source_time_for_fullscreen_widget(watched)
+        self.pause_active()
+        if watched is self.video_widget:
+            self.video_widget.setFullScreen(False)
+            self.tabs.setCurrentIndex(1)
+            self._refresh_video_outputs()
+            self._seek_processed_from_source_time(source_time)
+            self.processed_video_widget.setFullScreen(True)
+            if was_playing:
+                self._resume_fullscreen_player(self.processed_video_widget)
+        elif watched is self.processed_video_widget:
+            self.processed_video_widget.setFullScreen(False)
+            self.tabs.setCurrentIndex(0)
+            self._refresh_video_outputs()
+            self.player.setPosition(round(source_time * 1000))
+            self._set_timeline_playhead(source_time)
+            self.video_widget.setFullScreen(True)
+            if was_playing:
+                self._resume_fullscreen_player(self.video_widget)
+        else:
+            return False
+        self._update_large_view_state()
+        self._update_playback_button()
+        return True
+
+    def _source_time_for_fullscreen_widget(self, watched) -> float:
+        if watched is self.video_widget:
+            return max(0.0, self.player.position() / 1000)
+        if watched is self.processed_video_widget:
+            return self._source_seconds_for_processed_milliseconds(self.processed_player.position())
+        return self.timeline_playhead_seconds()
+
+    def _resume_fullscreen_player(self, widget) -> None:
+        if widget is self.video_widget:
+            self.player.play()
+        elif widget is self.processed_video_widget:
+            self.processed_player.play()
 
     def run_preview(self) -> None:
         self.plan_preview()
@@ -2240,6 +2284,9 @@ class LargeSplitWindow(QWidget):
         return self.original_player.playbackState() == playing or self.processed_player.playbackState() == playing
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Tab:
+            self.resync_current_frame()
+            return
         if event.key() == Qt.Key.Key_Space:
             self.toggle_playback()
             return
@@ -2257,6 +2304,12 @@ class LargeSplitWindow(QWidget):
         self.processed_player.setSource(QUrl())
         self._on_close()
         super().closeEvent(event)
+
+    def resync_current_frame(self) -> None:
+        source_time = self.original_player.position() / 1000
+        if source_time <= 0:
+            source_time = self._pending_source_time
+        self.seek_source_time(source_time)
 
 
 class LoadMetricWidget(QWidget):
