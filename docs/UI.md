@@ -125,6 +125,8 @@ The main preview controls should separate reusable ranges from rendered outputs.
 
 ## Release Preset Wizard
 Final export settings should be guided by a wizard rather than a single dense form. Each page should explain the current decision, visibly mark a safe contextual default as Recommended, and keep alternatives available. The final page must show both a human summary and exact technical settings.
+The wizard entry point must be explicit in the main workflow: show a labelled `Release Wizard`
+control in addition to the top toolbar action.
 Accepting the wizard should plan a non-destructive full-source release export, append the exact stages
 to Properties, and add the job to the Release Queue instead of starting hidden work. The first
 implemented resolution policy is `preserve-restored-size`; other resize policies must be rejected

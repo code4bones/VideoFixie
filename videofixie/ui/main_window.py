@@ -124,7 +124,9 @@ class MainWindow(QMainWindow):
 
     def _build_actions(self) -> None:
         toolbar = QToolBar("Main")
+        toolbar.setObjectName("mainToolbar")
         toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
         open_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), "Open")
@@ -139,8 +141,8 @@ class MainWindow(QMainWindow):
         self.large_view_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton), "Large View")
         self.large_view_action.triggered.connect(self.open_large_view)
 
-        release_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Release")
-        release_action.triggered.connect(self.open_release_preset_wizard)
+        self.release_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Release Wizard")
+        self.release_action.triggered.connect(self.open_release_preset_wizard)
 
         properties_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView), "Properties")
         properties_action.triggered.connect(self.open_properties)
@@ -305,6 +307,7 @@ class MainWindow(QMainWindow):
         self.result_combo = QComboBox()
         self.load_result_button = QPushButton("Load Result")
         self.run_preview_button = QPushButton("Run Preview")
+        self.release_wizard_button = QPushButton("Release Wizard")
 
         segment_controls.addWidget(QLabel("Segment"), 0, 0)
         segment_controls.addWidget(self.segment_label, 0, 1)
@@ -327,7 +330,8 @@ class MainWindow(QMainWindow):
         segment_controls.addWidget(QLabel("Result"), 3, 0)
         segment_controls.addWidget(self.result_combo, 3, 1, 1, 5)
         segment_controls.addWidget(self.load_result_button, 3, 6)
-        segment_controls.addWidget(self.run_preview_button, 0, 8, 4, 1)
+        segment_controls.addWidget(self.run_preview_button, 0, 8, 2, 1)
+        segment_controls.addWidget(self.release_wizard_button, 2, 8, 2, 1)
         timeline_layout.addLayout(segment_controls)
 
         progress_row = QHBoxLayout()
@@ -369,6 +373,7 @@ class MainWindow(QMainWindow):
         self.load_cut_button.clicked.connect(self.load_selected_cut)
         self.load_result_button.clicked.connect(self.load_selected_result)
         self.run_preview_button.clicked.connect(self.toggle_preview)
+        self.release_wizard_button.clicked.connect(self.open_release_preset_wizard)
         self.run_variants_button.clicked.connect(self.toggle_benchmark)
         self.apply_variant_button.clicked.connect(self.apply_selected_variant)
         self.cancel_release_button.clicked.connect(self.cancel_release)

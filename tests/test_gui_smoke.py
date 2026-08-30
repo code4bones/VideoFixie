@@ -10,7 +10,8 @@ class GuiSmokeTest(unittest.TestCase):
     def test_main_window_can_be_constructed_offscreen(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication, QToolBar
 
         from videofixie.ui.main_window import MainWindow
 
@@ -24,6 +25,11 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertGreaterEqual(window.output_combo.count(), 5)
         self.assertEqual(window.tabs.tabText(3), "Variants")
         self.assertEqual(window.run_variants_button.text(), "Run Variants")
+        self.assertEqual(window.release_action.text(), "Release Wizard")
+        self.assertEqual(window.release_wizard_button.text(), "Release Wizard")
+        toolbar = window.findChild(QToolBar, "mainToolbar")
+        self.assertIsNotNone(toolbar)
+        self.assertEqual(toolbar.toolButtonStyle(), Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.assertEqual(window.variant_parallel_spin.value(), 3)
         self.assertEqual(window.variant_metrics_layout.count(), 4)
         self.assertEqual(window.gpu_metric.title, "GPU load")
@@ -169,6 +175,8 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.play_button.text(), "Play")
         self.assertEqual(window.run_preview_button.text(), "Run Preview")
         self.assertEqual(window.run_action.text(), "Run Preview")
+        self.assertEqual(window.release_wizard_button.text(), "Release Wizard")
+        self.assertEqual(window.release_action.text(), "Release Wizard")
 
         window.in_spin.setText("1:02.500")
         window.in_spin.editingFinished.emit()
