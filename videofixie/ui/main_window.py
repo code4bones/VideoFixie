@@ -30,12 +30,14 @@ from videofixie.domain.jobs import TestSegment, TestSegmentKind
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets
 from videofixie.domain.profiles import ProcessingProfile
+from videofixie.domain.release_presets import ReleasePreset
 from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment
 from videofixie.services.history import PreviewResult
 from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
 from videofixie.ui.properties_dialog import PropertiesDialog
+from videofixie.ui.release_preset_wizard import ReleasePresetWizard
 from videofixie.ui.settings_dialog import SettingsDialog
 from videofixie.ui.timeline import SegmentTimeline
 from videofixie.ui.timecode import TimecodeEdit
@@ -57,6 +59,7 @@ class MainWindow(QMainWindow):
         )
         self.settings = self.service.load_settings() if hasattr(self.service, "load_settings") else AppSettings()
         self.profile_summary_text = ""
+        self.current_release_preset: ReleasePreset | None = None
         self._syncing_segment_controls = False
         self.current_job = None
         self.current_plan_segment: TestSegment | None = None
@@ -97,6 +100,9 @@ class MainWindow(QMainWindow):
 
         self.large_view_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton), "Large View")
         self.large_view_action.triggered.connect(self.open_large_view)
+
+        release_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Release")
+        release_action.triggered.connect(self.open_release_preset_wizard)
 
         properties_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView), "Properties")
         properties_action.triggered.connect(self.open_properties)
@@ -318,6 +324,20 @@ class MainWindow(QMainWindow):
         self.properties_dialog.show()
         self.properties_dialog.raise_()
         self.properties_dialog.activateWindow()
+
+    def open_release_preset_wizard(self) -> None:
+        wizard = ReleasePresetWizard(self.media, self)
+        if wizard.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.current_release_preset = wizard.release_preset()
+        self.command_text.appendPlainText(
+            "\nRelease preset:\n"
+            + "\n".join(self.current_release_preset.human_summary_lines())
+            + "\n\nRelease technical settings:\n"
+            + "\n".join(self.current_release_preset.technical_summary_lines())
+        )
+        self._refresh_properties_dialog()
+        self.preview_status.setText(f"Release preset ready: {self.current_release_preset.name}")
 
     def load_source(self, path: Path) -> None:
         try:

@@ -167,6 +167,9 @@ Bundled output presets describe user intent:
 
 Each preset compiles to explicit backend encoder settings such as codec, CRF and encoder preset. Preview/intermediate output defaults to a high-fidelity preview preset, while future full exports should default to a practical final-output preset.
 
+### Release presets
+Release presets are user-facing final export configurations. They compose lower-level output presets with container, stream preservation, destination and naming policy. The Release Preset Wizard must show recommended choices and a final technical summary before the preset is used for rendering.
+
 ### Model catalog
 Model catalog and installation state are separate from processing profiles. A future Model Manager should discover bundled Video2X models and install trusted official models into the configured managed models directory.
 

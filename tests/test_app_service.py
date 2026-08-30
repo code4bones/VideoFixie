@@ -22,6 +22,9 @@ class VideoFixieServiceTest(unittest.TestCase):
     def test_output_presets_returns_bundled_presets(self) -> None:
         self.assertEqual(VideoFixieService().output_presets(), bundled_output_presets())
 
+    def test_default_release_preset_is_available(self) -> None:
+        self.assertEqual(VideoFixieService().default_release_preset().output_preset_slug, "balanced")
+
     def test_settings_facade_persists_app_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")

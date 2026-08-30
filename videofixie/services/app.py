@@ -14,6 +14,7 @@ from videofixie.domain.jobs import ProcessingJob, TestSegment
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets, preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
+from videofixie.domain.release_presets import ReleasePreset, default_release_preset
 from videofixie.domain.settings import AppSettings
 from videofixie.services.environment import MachineEnvironment, discover_environment
 from videofixie.services.history import PreviewResult, SavedCut, VideoFixieHistory
@@ -75,6 +76,9 @@ class VideoFixieService:
 
     def output_presets(self) -> tuple[OutputPreset, ...]:
         return bundled_output_presets()
+
+    def default_release_preset(self) -> ReleasePreset:
+        return default_release_preset()
 
     def processing_backends(self) -> tuple[ProcessingBackendDescriptor, ...]:
         return bundled_processing_backends()

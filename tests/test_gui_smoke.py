@@ -67,6 +67,24 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.run_preview_button.text(), "Run Preview")
         self.assertEqual(window.run_action.text(), "Run Preview")
 
+    def test_release_preset_wizard_builds_recommended_summary(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.release_preset_wizard import ReleasePresetWizard
+
+        app = QApplication.instance() or QApplication([])
+        wizard = ReleasePresetWizard()
+        app.processEvents()
+
+        self.assertIn("Recommended", wizard.goal_page.combo.currentText())
+        preset = wizard.release_preset()
+        wizard.summary_page.initializePage()
+
+        self.assertEqual(preset.output_preset_slug, "balanced")
+        self.assertIn("Technical settings", wizard.summary_page.summary_text.toPlainText())
+
     def test_replanning_uses_cached_media_and_environment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

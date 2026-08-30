@@ -120,6 +120,9 @@ video2x ...
 
 Provide a copy button. This is important both for debugging and for expert users.
 
+## Release Preset Wizard
+Final export settings should be guided by a wizard rather than a single dense form. Each page should explain the current decision, visibly mark a safe contextual default as Recommended, and keep alternatives available. The final page must show both a human summary and exact technical settings.
+
 ## Compare view
 At minimum support:
 - Original

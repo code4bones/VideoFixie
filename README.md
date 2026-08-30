@@ -51,6 +51,7 @@ IN/OUT fields accept exact timecodes such as `12.5`, `1:02.500`, or `1:02:03.250
 `Large View` opens fullscreen playback for Original/Processed and a separate resizable side-by-side window for Split; Space toggles play/stop there.
 Use `Properties` for source/environment/profile details and the planned/run command log.
 Use `Settings` for the active processing backend, tool paths, output/cache/models directories, preferred GPU, VapourSynth Python/vspipe diagnostics, and default profile/output preset.
+Use `Release` to open the Release Preset Wizard for guided final-export choices with Recommended defaults and a technical summary.
 
 Preview cuts and result history are persisted in a local SQLite database:
 
