@@ -12,7 +12,7 @@ from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage, 
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile
-from videofixie.jobs.runner import StageRunResult
+from videofixie.jobs.runner import ProcessLogLine, StageRunResult
 from videofixie.services.app import PlannedBenchmarkVariant, PlannedPreview, PlannedVideo2XBenchmark
 from videofixie.services.environment import MachineEnvironment, ToolStatus
 
@@ -124,6 +124,9 @@ class BenchmarkWorkerTest(unittest.TestCase):
             finished = []
 
             def fake_run_stage(stage, **kwargs):
+                on_output = kwargs.get("on_output")
+                if on_output is not None:
+                    on_output(ProcessLogLine("stdout", f"live {stage.command.label}"))
                 if stage.command.label == "shared cut":
                     return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("cut",))
                 if stage.command.label == "variant one":
@@ -147,8 +150,12 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(len(finished), 2)
         self.assertGreaterEqual(len(log_paths), 3)
         self.assertIn("shared cut", shared_text)
+        self.assertIn("status: running", shared_text)
+        self.assertIn("stdout: live shared cut", shared_text)
         self.assertIn("failed", failed_text)
-        self.assertIn("ready", completed_text)
+        self.assertIn("stdout: live variant one", failed_text)
+        self.assertIn("status: succeeded", completed_text)
+        self.assertIn("stdout: live variant two", completed_text)
         self.assertEqual(finished[0].log_path, failed_log)
 
     def test_preview_worker_writes_run_log(self) -> None:

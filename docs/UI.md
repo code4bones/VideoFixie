@@ -154,6 +154,7 @@ Initial grid behavior:
 - run variants sequentially by default to avoid VRAM contention;
 - show an explicit queued/running/ready/failed state and keep a bounded active Video2X set;
 - expose a small parallelism limit for advanced testing, capped at 3 active Video2X variants;
+- keep the run status aggregated by active/done/ready/failed counts instead of following only the last tile event;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;
 - keep exact commands visible in Properties;
@@ -164,6 +165,7 @@ Tiles should stay lightweight. Do not create a separate media player per variant
 Each benchmark run writes one ignored diagnostics directory containing the shared-source log and a
 separate log file for every variant tile. Failed tiles should preserve enough error text in the card
 and enough file path context in Properties to inspect the raw backend output later.
+Active tile logs should contain the running command and live process output before the command exits.
 
 The default live-action set excludes anime-specific models. Separate anime/custom benchmark sets may be added later.
 

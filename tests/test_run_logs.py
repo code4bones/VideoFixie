@@ -17,6 +17,8 @@ class RunLogTest(unittest.TestCase):
             command = PlannedCommand(sys.executable, ("-c", "print('ok')"), "fake command")
             stage = ProcessingStage("fake stage", command)
 
+            log.append_stage_start(stage)
+            log.append_process_line("stdout", "live ok")
             result = SubprocessJobRunner().run_stage(stage)
             log.append_stage_result(stage, result)
             log.append_status("succeeded")
@@ -26,6 +28,8 @@ class RunLogTest(unittest.TestCase):
         self.assertIn("Preview run", text)
         self.assertIn("source: clip.mp4", text)
         self.assertIn("label: fake stage", text)
+        self.assertIn("status: running", text)
+        self.assertIn("stdout: live ok", text)
         self.assertIn("exit_code: 0", text)
         self.assertIn(command.display(), text)
         self.assertIn("  ok", text)

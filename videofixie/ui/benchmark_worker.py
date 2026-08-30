@@ -66,15 +66,16 @@ class BenchmarkWorker(QObject):
                 )
                 if shared_log is not None:
                     self.outputReceived.emit(-1, f"run_log: {shared_log.path}")
+                    shared_log.append_stage_start(shared_stage)
                 self.stageStarted.emit(-1, "Prepare benchmark source", _stage_display(shared_stage))
                 result = runner.run_stage(
                     shared_stage,
                     cancellation_token=self.cancellation_token,
-                    on_output=lambda line: self._handle_output(-1, line),
+                    on_output=lambda line: self._handle_logged_output(shared_log, -1, line),
                     on_progress=lambda progress: self.progressChanged.emit(-1, progress),
                 )
                 if shared_log is not None:
-                    shared_log.append_stage_result(shared_stage, result)
+                    shared_log.append_stage_result(shared_stage, result, include_output=False)
                 if not result.succeeded:
                     run_result = JobRunResult(stages=(result,), cancelled=self.cancellation_token.is_cancelled)
                     error = "cancelled" if result.cancelled else f"{shared_stage.label} failed with exit {result.exit_code}"
@@ -181,14 +182,16 @@ class BenchmarkWorker(QObject):
             if self.cancellation_token.is_cancelled:
                 break
             self.stageStarted.emit(index, stage.label, _stage_display(stage))
+            if variant_log is not None:
+                variant_log.append_stage_start(stage)
             result = runner.run_stage(
                 stage,
                 cancellation_token=self.cancellation_token,
-                on_output=lambda line, variant_index=index: self._handle_output(variant_index, line),
+                on_output=lambda line, variant_index=index: self._handle_logged_output(variant_log, variant_index, line),
                 on_progress=lambda progress, variant_index=index: self.progressChanged.emit(variant_index, progress),
             )
             if variant_log is not None:
-                variant_log.append_stage_result(stage, result)
+                variant_log.append_stage_result(stage, result, include_output=False)
             stage_results.append(result)
             if not result.succeeded:
                 exit_code = result.exit_code
@@ -210,6 +213,16 @@ class BenchmarkWorker(QObject):
 
     def _handle_output(self, variant_index: int, line: ProcessLogLine) -> None:
         self.outputReceived.emit(variant_index, f"{line.stream}: {line.text}")
+
+    def _handle_logged_output(
+        self,
+        log: RunLogFile | None,
+        variant_index: int,
+        line: ProcessLogLine,
+    ) -> None:
+        if log is not None:
+            log.append_process_line(line.stream, line.text)
+        self._handle_output(variant_index, line)
 
     def _create_run_log(self, name: str, title: str, metadata: dict[str, str]) -> RunLogFile | None:
         if self.run_dir is None:

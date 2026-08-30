@@ -46,10 +46,34 @@ class RunLogFile:
                     handle.write(line)
                     handle.write("\n")
 
-    def append_stage_result(self, stage: ProcessingStage, result: StageRunResult) -> None:
-        cwd = stage.cwd if stage.cwd is not None else result.cwd
+    def append_stage_start(self, stage: ProcessingStage) -> None:
         lines = [
             "----- stage -----",
+            f"label: {stage.label}",
+            "status: running",
+            f"cwd: {stage.cwd or ''}",
+            "command:",
+            stage.command.display(),
+        ]
+        for generated_file in stage.generated_files:
+            description = generated_file.description or "Generated file"
+            lines.extend(
+                [
+                    "generated_file:",
+                    f"  description: {description}",
+                    f"  path: {generated_file.path}",
+                ]
+            )
+        lines.append("")
+        self.append_lines(tuple(lines))
+
+    def append_process_line(self, stream: str, text: str) -> None:
+        self.append_lines((f"{stream}: {text}",))
+
+    def append_stage_result(self, stage: ProcessingStage, result: StageRunResult, include_output: bool = True) -> None:
+        cwd = stage.cwd if stage.cwd is not None else result.cwd
+        lines = [
+            "----- stage result -----",
             f"label: {stage.label}",
             f"status: {_stage_status(result)}",
             f"exit_code: {result.exit_code}",
@@ -68,10 +92,13 @@ class RunLogFile:
                     f"  path: {generated_file.path}",
                 ]
             )
-        lines.append("stdout:")
-        lines.extend(f"  {line}" for line in result.stdout)
-        lines.append("stderr:")
-        lines.extend(f"  {line}" for line in result.stderr)
+        if include_output:
+            lines.append("stdout:")
+            lines.extend(f"  {line}" for line in result.stdout)
+            lines.append("stderr:")
+            lines.extend(f"  {line}" for line in result.stderr)
+        else:
+            lines.extend(("stdout: <captured live above>", "stderr: <captured live above>"))
         lines.append("")
         self.append_lines(tuple(lines))
 

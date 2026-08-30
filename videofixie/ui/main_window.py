@@ -90,6 +90,9 @@ class MainWindow(QMainWindow):
         self.benchmark_worker: BenchmarkWorker | None = None
         self.variant_tiles: list[VariantTile] = []
         self.benchmark_outputs: dict[int, Path] = {}
+        self.active_benchmark_indices: set[int] = set()
+        self.finished_benchmark_indices: set[int] = set()
+        self.current_benchmark_indices: set[int] = set()
         self.metrics_collector = SystemMetricsCollector()
         self.gpu_load_history: list[int] = []
         self.cpu_load_history: list[int] = []
@@ -799,6 +802,10 @@ class MainWindow(QMainWindow):
             max_parallel_jobs=self.variant_parallel_spin.value(),
             run_logs_root=self._run_logs_root(),
         )
+        selected_indices = indices or tuple(range(len(self.variant_tiles)))
+        self.active_benchmark_indices = set()
+        self.finished_benchmark_indices = set()
+        self.current_benchmark_indices = set(selected_indices)
         self.benchmark_worker.moveToThread(self.benchmark_thread)
         self.benchmark_thread.started.connect(self.benchmark_worker.run)
         self.benchmark_worker.variantStarted.connect(self._on_benchmark_variant_started)
@@ -840,8 +847,9 @@ class MainWindow(QMainWindow):
         self._update_profile_summary()
 
     def _on_benchmark_variant_started(self, index: int, label: str) -> None:
+        self.active_benchmark_indices.add(index)
         self._variant_tile(index).set_running(label)
-        self.variant_status_label.setText(f"Running: {label}")
+        self._update_benchmark_running_status()
 
     def _on_benchmark_stage_started(self, index: int, label: str, command: str) -> None:
         if index < 0:
@@ -871,6 +879,8 @@ class MainWindow(QMainWindow):
         self._variant_tile(index).set_progress(progress)
 
     def _on_benchmark_variant_finished(self, run: BenchmarkVariantRun) -> None:
+        self.active_benchmark_indices.discard(run.index)
+        self.finished_benchmark_indices.add(run.index)
         tile = self._variant_tile(run.index)
         elapsed = sum(stage.duration_seconds for stage in run.result.stages)
         progress_events = [progress for stage in run.result.stages for progress in stage.progress]
@@ -882,13 +892,17 @@ class MainWindow(QMainWindow):
             tile.set_failed("cancelled", elapsed, fps)
         else:
             tile.set_failed(run.error or "failed", elapsed, fps)
+        if self.benchmark_thread is not None:
+            self._update_benchmark_running_status()
 
     def _on_benchmark_finished(self) -> None:
+        self.active_benchmark_indices.clear()
         completed = sum(1 for tile in self.variant_tiles if tile.output_path is not None)
         self.variant_status_label.setText(f"Variant benchmark finished: {completed}/{len(self.variant_tiles)} ready")
         self._set_benchmark_running(False)
 
     def _on_benchmark_failed(self, message: str) -> None:
+        self.active_benchmark_indices.clear()
         self.variant_status_label.setText("Variant benchmark failed")
         self._set_benchmark_running(False)
         QMessageBox.critical(self, "Variant benchmark failed", message)
@@ -905,6 +919,17 @@ class MainWindow(QMainWindow):
         self.variant_parallel_spin.setEnabled(not running)
         for tile in self.variant_tiles:
             tile.set_actions_enabled(not running)
+
+    def _update_benchmark_running_status(self) -> None:
+        total = len(self.current_benchmark_indices) or len(self.variant_tiles)
+        done = len(self.finished_benchmark_indices)
+        active = len(self.active_benchmark_indices)
+        ready = sum(1 for index in self.finished_benchmark_indices if self._variant_tile(index).output_path is not None)
+        failed = max(0, done - ready)
+        parts = [f"{active} active", f"{done}/{total} done", f"{ready} ready"]
+        if failed:
+            parts.append(f"{failed} failed")
+        self.variant_status_label.setText("Variant benchmark running: " + ", ".join(parts))
 
     def _apply_system_metrics(self, metrics) -> None:
         if metrics.gpu_percent is not None:
