@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QThread, QTimer, QUrl, Qt
+from PySide6.QtCore import QEvent, QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QProgressBar,
+    QFrame,
+    QScrollArea,
     QDoubleSpinBox,
     QStyle,
     QTabWidget,
@@ -27,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from videofixie.domain.backends import bundled_processing_backends
+from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG, bundled_processing_backends
 from videofixie.domain.jobs import TestSegment, TestSegmentKind
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets
@@ -37,6 +40,7 @@ from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment
 from videofixie.services.history import PreviewResult, SavedCut
+from videofixie.ui.benchmark_worker import BenchmarkVariantRun, BenchmarkWorker
 from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
 from videofixie.ui.properties_dialog import PropertiesDialog
 from videofixie.ui.release_preset_wizard import ReleasePresetWizard
@@ -75,6 +79,11 @@ class MainWindow(QMainWindow):
         self.properties_dialog: PropertiesDialog | None = None
         self.preview_thread: QThread | None = None
         self.preview_worker: PreviewWorker | None = None
+        self.benchmark_plan = None
+        self.benchmark_thread: QThread | None = None
+        self.benchmark_worker: BenchmarkWorker | None = None
+        self.variant_tiles: list[VariantTile] = []
+        self.benchmark_outputs: dict[int, Path] = {}
         self._syncing_playhead = False
         self._restarting_playback = False
         self._suppress_planning = True
@@ -163,6 +172,28 @@ class MainWindow(QMainWindow):
         split_layout.addWidget(self.split_original_widget, 1)
         split_layout.addWidget(self.split_processed_widget, 1)
         self.tabs.addTab(split_widget, "Split")
+
+        self.variants_tab = QWidget()
+        variants_layout = QVBoxLayout(self.variants_tab)
+        variants_layout.setContentsMargins(8, 8, 8, 8)
+        variants_layout.setSpacing(8)
+        variants_toolbar = QHBoxLayout()
+        self.run_variants_button = QPushButton("Run Variants")
+        self.apply_variant_button = QPushButton("Apply Selected")
+        self.variant_status_label = QLabel("No variants planned")
+        variants_toolbar.addWidget(self.run_variants_button)
+        variants_toolbar.addWidget(self.apply_variant_button)
+        variants_toolbar.addWidget(self.variant_status_label, 1)
+        variants_layout.addLayout(variants_toolbar)
+        self.variant_scroll = QScrollArea()
+        self.variant_scroll.setWidgetResizable(True)
+        self.variant_grid_widget = QWidget()
+        self.variant_grid = QGridLayout(self.variant_grid_widget)
+        self.variant_grid.setContentsMargins(0, 0, 0, 0)
+        self.variant_grid.setSpacing(8)
+        self.variant_scroll.setWidget(self.variant_grid_widget)
+        variants_layout.addWidget(self.variant_scroll, 1)
+        self.tabs.addTab(self.variants_tab, "Variants")
         self.tabs.currentChanged.connect(self._on_active_tab_changed)
         root_layout.addWidget(self.tabs, 1)
 
@@ -278,6 +309,8 @@ class MainWindow(QMainWindow):
         self.load_cut_button.clicked.connect(self.load_selected_cut)
         self.load_result_button.clicked.connect(self.load_selected_result)
         self.run_preview_button.clicked.connect(self.toggle_preview)
+        self.run_variants_button.clicked.connect(self.toggle_benchmark)
+        self.apply_variant_button.clicked.connect(self.apply_selected_variant)
 
         self._apply_settings_defaults_to_controls()
         self._update_large_view_state()
@@ -295,6 +328,7 @@ class MainWindow(QMainWindow):
             }
             QPushButton { background: #2d3543; color: #eef3fb; border: 1px solid #495366; border-radius: 4px; padding: 6px 10px; }
             QPushButton:hover { background: #384254; }
+            QPushButton:disabled { color: #738096; background: #242a35; border-color: #313846; }
             QTabWidget::pane { border: 1px solid #343a46; }
             QTabBar::tab { background: #222732; color: #b7c0cf; padding: 7px 12px; border: 1px solid #343a46; }
             QTabBar::tab:selected { background: #303849; color: #ffffff; }
@@ -373,6 +407,9 @@ class MainWindow(QMainWindow):
             self.split_original_player.setSource(QUrl.fromLocalFile(str(path)))
             self.processed_player.setSource(QUrl())
             self.split_processed_player.setSource(QUrl())
+            self._clear_variant_tiles()
+            self.benchmark_plan = None
+            self.benchmark_outputs = {}
             self.current_plan_segment = None
             self.running_preview_job = None
             self.running_preview_segment = None
@@ -468,7 +505,7 @@ class MainWindow(QMainWindow):
             self.split_processed_player.pause()
             self._seek_processed_from_source_time(self.timeline_playhead_seconds())
             self.processed_player.play()
-        else:
+        elif self.tabs.currentIndex() == 2:
             if self.processed_output_path is None:
                 return
             self.player.pause()
@@ -476,6 +513,8 @@ class MainWindow(QMainWindow):
             self._seek_split_from_source_time(self.timeline_playhead_seconds())
             self.split_processed_player.play()
             self.split_original_player.play()
+        else:
+            return
         self._update_playback_button()
 
     def pause_active(self) -> None:
@@ -600,8 +639,12 @@ class MainWindow(QMainWindow):
                 return
             self._toggle_video_fullscreen(self.processed_video_widget)
             self._seek_processed_from_source_time(self.timeline_playhead_seconds())
-        else:
+        elif index == 2:
             self._open_large_split_view()
+        else:
+            tile = self._selected_variant_tile()
+            if tile is not None:
+                self.open_benchmark_variant(tile.index)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
         fullscreen_widgets = tuple(
@@ -658,6 +701,224 @@ class MainWindow(QMainWindow):
         if self.preview_worker is not None:
             self.preview_status.setText("Cancelling preview")
             self.preview_worker.cancel()
+
+    def toggle_benchmark(self) -> None:
+        if self.benchmark_thread is None:
+            self.run_benchmark()
+        else:
+            self.cancel_benchmark()
+
+    def run_benchmark(self) -> None:
+        self._run_benchmark_indices(None)
+
+    def rerun_benchmark_variant(self, index: int) -> None:
+        self._run_benchmark_indices((index,))
+
+    def _run_benchmark_indices(self, indices: tuple[int, ...] | None) -> None:
+        if self.source_path is None or self.media is None or self.environment is None:
+            self.variant_status_label.setText("Open a source video first")
+            return
+        if self.benchmark_thread is not None:
+            return
+        try:
+            if self.benchmark_plan is None or indices is None:
+                self.benchmark_plan = self.service.plan_video2x_benchmark_with_context(
+                    source_path=self.source_path,
+                    work_dir=self._preview_work_dir(),
+                    segment=self._current_segment(),
+                    media=self.media,
+                    environment=self.environment,
+                    device_index=self._selected_device_index(),
+                    output_preset=self._selected_output_preset(),
+                )
+                self._build_variant_tiles()
+                self._write_benchmark_plan_log()
+            elif not self.variant_tiles:
+                self._build_variant_tiles()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Variant benchmark planning failed", str(exc))
+            return
+
+        self.benchmark_thread = QThread(self)
+        self.benchmark_worker = BenchmarkWorker(self.benchmark_plan, indices)
+        self.benchmark_worker.moveToThread(self.benchmark_thread)
+        self.benchmark_thread.started.connect(self.benchmark_worker.run)
+        self.benchmark_worker.variantStarted.connect(self._on_benchmark_variant_started)
+        self.benchmark_worker.stageStarted.connect(self._on_benchmark_stage_started)
+        self.benchmark_worker.outputReceived.connect(self._on_benchmark_output)
+        self.benchmark_worker.progressChanged.connect(self._on_benchmark_progress)
+        self.benchmark_worker.variantFinished.connect(self._on_benchmark_variant_finished)
+        self.benchmark_worker.finished.connect(self._on_benchmark_finished)
+        self.benchmark_worker.failed.connect(self._on_benchmark_failed)
+        self.benchmark_worker.finished.connect(self.benchmark_thread.quit)
+        self.benchmark_worker.failed.connect(self.benchmark_thread.quit)
+        self.benchmark_worker.finished.connect(self.benchmark_worker.deleteLater)
+        self.benchmark_worker.failed.connect(self.benchmark_worker.deleteLater)
+        self.benchmark_thread.finished.connect(self._cleanup_benchmark_thread)
+        self._set_benchmark_running(True)
+        self.variant_status_label.setText("Variant benchmark running")
+        self.tabs.setCurrentWidget(self.variants_tab)
+        self.benchmark_thread.start()
+
+    def cancel_benchmark(self) -> None:
+        if self.benchmark_worker is not None:
+            self.variant_status_label.setText("Cancelling variant benchmark")
+            self.benchmark_worker.cancel()
+
+    def apply_selected_variant(self) -> None:
+        tile = self._selected_variant_tile()
+        if tile is None or self.benchmark_plan is None:
+            self.variant_status_label.setText("No variant selected")
+            return
+        variant = self.benchmark_plan.variants[tile.index].variant
+        if self.settings.active_backend_slug != VIDEO2X_BACKEND_SLUG:
+            self.settings = replace(self.settings, active_backend_slug=VIDEO2X_BACKEND_SLUG)
+            if hasattr(self.service, "save_settings"):
+                self.service.save_settings(self.settings)
+        self._ensure_profile_available(variant.profile)
+        self._select_profile_slug(variant.profile.slug)
+        self.variant_status_label.setText(f"Applied: {variant.label}")
+        self._update_profile_summary()
+
+    def _on_benchmark_variant_started(self, index: int, label: str) -> None:
+        self._variant_tile(index).set_running(label)
+        self.variant_status_label.setText(f"Running: {label}")
+
+    def _on_benchmark_stage_started(self, index: int, label: str, command: str) -> None:
+        tile = self._variant_tile(index)
+        tile.set_stage(label)
+        self.command_text.appendPlainText(f"\n[{tile.title_text}] Running: {label}\n{command}")
+        self._refresh_properties_dialog()
+
+    def _on_benchmark_output(self, index: int, line: str) -> None:
+        tile = self._variant_tile(index)
+        self.command_text.appendPlainText(f"[{tile.title_text}] {line}")
+        self._refresh_properties_dialog()
+
+    def _on_benchmark_progress(self, index: int, progress) -> None:
+        self._variant_tile(index).set_progress(progress)
+
+    def _on_benchmark_variant_finished(self, run: BenchmarkVariantRun) -> None:
+        tile = self._variant_tile(run.index)
+        elapsed = sum(stage.duration_seconds for stage in run.result.stages)
+        progress_events = [progress for stage in run.result.stages for progress in stage.progress]
+        fps = next((progress.fps for progress in reversed(progress_events) if progress.fps is not None), None)
+        if run.output_path is not None:
+            self.benchmark_outputs[run.index] = run.output_path
+            tile.set_completed(run.output_path, elapsed, fps)
+        elif run.result.cancelled:
+            tile.set_failed("cancelled", elapsed, fps)
+        else:
+            tile.set_failed(run.error or "failed", elapsed, fps)
+
+    def _on_benchmark_finished(self) -> None:
+        completed = sum(1 for tile in self.variant_tiles if tile.output_path is not None)
+        self.variant_status_label.setText(f"Variant benchmark finished: {completed}/{len(self.variant_tiles)} ready")
+        self._set_benchmark_running(False)
+
+    def _on_benchmark_failed(self, message: str) -> None:
+        self.variant_status_label.setText("Variant benchmark failed")
+        self._set_benchmark_running(False)
+        QMessageBox.critical(self, "Variant benchmark failed", message)
+
+    def _cleanup_benchmark_thread(self) -> None:
+        if self.benchmark_thread is not None:
+            self.benchmark_thread.deleteLater()
+        self.benchmark_worker = None
+        self.benchmark_thread = None
+
+    def _set_benchmark_running(self, running: bool) -> None:
+        self.run_variants_button.setText("Cancel Variants" if running else "Run Variants")
+        self.apply_variant_button.setEnabled(not running)
+
+    def _build_variant_tiles(self) -> None:
+        if self.benchmark_plan is None:
+            return
+        self._clear_variant_tiles()
+        for index, planned_variant in enumerate(self.benchmark_plan.variants):
+            tile = VariantTile(index, planned_variant.variant.label, planned_variant.variant.parameters)
+            tile.openRequested.connect(self.open_benchmark_variant)
+            tile.applyRequested.connect(self.apply_benchmark_variant)
+            tile.rerunRequested.connect(self.rerun_benchmark_variant)
+            tile.selected.connect(self._select_variant_tile)
+            self.variant_tiles.append(tile)
+        self._layout_variant_tiles()
+        if self.variant_tiles:
+            self._select_variant_tile(0)
+        self.variant_status_label.setText(f"{len(self.variant_tiles)} variants planned")
+
+    def _clear_variant_tiles(self) -> None:
+        for tile in self.variant_tiles:
+            tile.setParent(None)
+            tile.deleteLater()
+        self.variant_tiles = []
+        while self.variant_grid.count():
+            item = self.variant_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+
+    def _layout_variant_tiles(self) -> None:
+        if not hasattr(self, "variant_grid"):
+            return
+        while self.variant_grid.count():
+            self.variant_grid.takeAt(0)
+        columns = max(1, min(3, self.variant_scroll.viewport().width() // 330))
+        for index, tile in enumerate(self.variant_tiles):
+            self.variant_grid.addWidget(tile, index // columns, index % columns)
+
+    def _write_benchmark_plan_log(self) -> None:
+        if self.benchmark_plan is None:
+            return
+        lines = [
+            "Video2X variant benchmark:",
+            f"Segment: {self.benchmark_plan.segment.label} {self.benchmark_plan.segment.start_seconds:.3f}-{self.benchmark_plan.segment.end_seconds:.3f}s",
+            f"Output preset: {self.benchmark_plan.output_preset.name} ({self.benchmark_plan.output_preset.slug})",
+        ]
+        for index, planned_variant in enumerate(self.benchmark_plan.variants, start=1):
+            lines.extend(["", f"Variant {index}: {planned_variant.variant.label}", planned_variant.variant.parameters])
+            for stage_index, stage in enumerate(planned_variant.preview.job.stages, start=1):
+                lines.extend([f"  Stage {stage_index}: {stage.label}", f"  {stage.command.display()}"])
+        self.command_text.setPlainText("\n".join(lines))
+        self._refresh_properties_dialog()
+
+    def _variant_tile(self, index: int) -> "VariantTile":
+        return self.variant_tiles[index]
+
+    def _selected_variant_tile(self) -> "VariantTile | None":
+        for tile in self.variant_tiles:
+            if tile.is_selected:
+                return tile
+        return self.variant_tiles[0] if self.variant_tiles else None
+
+    def _select_variant_tile(self, index: int) -> None:
+        for tile in self.variant_tiles:
+            tile.set_selected(tile.index == index)
+        self._update_large_view_state()
+
+    def open_benchmark_variant(self, index: int) -> None:
+        tile = self._variant_tile(index)
+        if tile.output_path is None or self.benchmark_plan is None or self.source_path is None:
+            return
+        self.processed_output_path = tile.output_path
+        self.processed_segment = self.benchmark_plan.segment
+        self.processed_player.setSource(QUrl.fromLocalFile(str(tile.output_path.resolve())))
+        self.split_processed_player.setSource(QUrl.fromLocalFile(str(tile.output_path.resolve())))
+        self._set_timeline_playhead(self.benchmark_plan.segment.start_seconds)
+        self.tabs.setCurrentIndex(1)
+        self._update_timeline_view()
+        self._update_large_view_state()
+        self.open_large_view()
+
+    def apply_benchmark_variant(self, index: int) -> None:
+        self._select_variant_tile(index)
+        self.apply_selected_variant()
+
+    def _ensure_profile_available(self, profile: ProcessingProfile) -> None:
+        if any(candidate.slug == profile.slug for candidate in self.profiles):
+            return
+        self.profiles = (*self.profiles, profile)
+        self.profile_combo.addItem(profile.name, profile.slug)
 
     def _on_preview_stage_started(self, label: str, command: str) -> None:
         self.preview_status.setText(label)
@@ -817,7 +1078,7 @@ class MainWindow(QMainWindow):
             self.player.setPosition(round(seconds * 1000))
         elif self.tabs.currentIndex() == 1:
             self._seek_processed_from_source_time(seconds)
-        else:
+        elif self.tabs.currentIndex() == 2:
             self._seek_split_from_source_time(seconds)
 
     def _on_player_position(self, milliseconds: int) -> None:
@@ -897,14 +1158,18 @@ class MainWindow(QMainWindow):
             return self.player.playbackState() == playing
         if self.tabs.currentIndex() == 1:
             return self.processed_player.playbackState() == playing
-        return self.split_original_player.playbackState() == playing or self.split_processed_player.playbackState() == playing
+        if self.tabs.currentIndex() == 2:
+            return self.split_original_player.playbackState() == playing or self.split_processed_player.playbackState() == playing
+        return False
 
     def _player_matches_active_view(self, player: QMediaPlayer) -> bool:
         if self.tabs.currentIndex() == 0:
             return player is self.player
         if self.tabs.currentIndex() == 1:
             return player is self.processed_player
-        return player in (self.split_original_player, self.split_processed_player)
+        if self.tabs.currentIndex() == 2:
+            return player in (self.split_original_player, self.split_processed_player)
+        return False
 
     def _update_playback_button(self) -> None:
         if not hasattr(self, "play_button"):
@@ -934,7 +1199,7 @@ class MainWindow(QMainWindow):
                     return
                 self._seek_processed_from_source_time(self.processed_segment.start_seconds)
                 self.processed_player.play()
-            else:
+            elif self.tabs.currentIndex() == 2:
                 if self.processed_segment is None or self.processed_output_path is None:
                     self._update_playback_button()
                     return
@@ -1186,7 +1451,10 @@ class MainWindow(QMainWindow):
             return self.source_path is not None or self.player.source().isValid()
         if self.tabs.currentIndex() == 1:
             return self.processed_output_path is not None
-        return self.source_path is not None and self.processed_output_path is not None and self.processed_segment is not None
+        if self.tabs.currentIndex() == 2:
+            return self.source_path is not None and self.processed_output_path is not None and self.processed_segment is not None
+        tile = self._selected_variant_tile()
+        return tile is not None and tile.output_path is not None
 
     def _update_large_view_state(self) -> None:
         if not hasattr(self, "large_view_button"):
@@ -1194,7 +1462,9 @@ class MainWindow(QMainWindow):
         enabled = self._large_view_available()
         self.large_view_button.setEnabled(enabled)
         self.large_view_action.setEnabled(enabled)
-        if self.tabs.currentIndex() == 2 and not enabled:
+        if self.tabs.currentIndex() == 3 and not enabled:
+            reason = "Run or select a completed variant first"
+        elif self.tabs.currentIndex() == 2 and not enabled:
             reason = "Run or load a processed preview first"
         elif self.tabs.currentIndex() == 1 and self.processed_output_path is None:
             reason = "Run or load a processed preview first"
@@ -1208,13 +1478,137 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802
         if self.preview_worker is not None:
             self.preview_worker.cancel()
+        if self.benchmark_worker is not None:
+            self.benchmark_worker.cancel()
         self.pause_active()
         if self.large_split_window is not None:
             self.large_split_window.close()
         if self.preview_thread is not None:
             self.preview_thread.quit()
             self.preview_thread.wait(2000)
+        if self.benchmark_thread is not None:
+            self.benchmark_thread.quit()
+            self.benchmark_thread.wait(2000)
         super().closeEvent(event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._layout_variant_tiles()
+
+
+class VariantTile(QFrame):
+    openRequested = Signal(int)
+    applyRequested = Signal(int)
+    rerunRequested = Signal(int)
+    selected = Signal(int)
+
+    def __init__(self, index: int, title: str, parameters: str) -> None:
+        super().__init__()
+        self.index = index
+        self.title_text = title
+        self.output_path: Path | None = None
+        self.is_selected = False
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setMinimumWidth(300)
+        self.setStyleSheet(
+            """
+            VariantTile {
+                background: #20242c;
+                border: 1px solid #343a46;
+                border-radius: 6px;
+            }
+            """
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-weight: 600;")
+        self.params_label = QLabel(parameters)
+        self.params_label.setWordWrap(True)
+        self.status_label = QLabel("Ready")
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.video_widget = QVideoWidget()
+        self.video_widget.setMinimumHeight(150)
+        self.video_widget.setStyleSheet("background: #050609;")
+        self.player = QMediaPlayer(self)
+        self.audio = QAudioOutput(self)
+        self.audio.setMuted(True)
+        self.player.setAudioOutput(self.audio)
+        self.player.setVideoOutput(self.video_widget)
+        actions = QHBoxLayout()
+        self.open_button = QPushButton("Open")
+        self.apply_button = QPushButton("Apply")
+        self.rerun_button = QPushButton("Rerun")
+        self.open_button.setEnabled(False)
+        actions.addWidget(self.open_button)
+        actions.addWidget(self.apply_button)
+        actions.addWidget(self.rerun_button)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.params_label)
+        layout.addWidget(self.video_widget)
+        layout.addWidget(self.progress)
+        layout.addWidget(self.status_label)
+        layout.addLayout(actions)
+        self.open_button.clicked.connect(lambda: self.openRequested.emit(self.index))
+        self.apply_button.clicked.connect(lambda: self.applyRequested.emit(self.index))
+        self.rerun_button.clicked.connect(lambda: self.rerunRequested.emit(self.index))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self.selected.emit(self.index)
+        super().mousePressEvent(event)
+
+    def set_selected(self, selected: bool) -> None:
+        self.is_selected = selected
+        border = "#7aa2ff" if selected else "#343a46"
+        self.setStyleSheet(
+            f"""
+            VariantTile {{
+                background: #20242c;
+                border: 1px solid {border};
+                border-radius: 6px;
+            }}
+            """
+        )
+
+    def set_running(self, label: str) -> None:
+        self.output_path = None
+        self.open_button.setEnabled(False)
+        self.progress.setValue(0)
+        self.status_label.setText(f"Running: {label}")
+
+    def set_stage(self, label: str) -> None:
+        self.status_label.setText(label)
+
+    def set_progress(self, progress) -> None:
+        if progress.percent is not None:
+            self.progress.setValue(round(progress.percent * 10))
+        details = []
+        if progress.current_frame is not None and progress.total_frames is not None:
+            details.append(f"{progress.current_frame}/{progress.total_frames}")
+        if progress.fps is not None:
+            details.append(f"{progress.fps:.2f} fps")
+        if progress.remaining:
+            details.append(f"{progress.remaining} remaining")
+        if details:
+            self.status_label.setText(" | ".join(details))
+
+    def set_completed(self, output_path: Path, elapsed_seconds: float, fps: float | None) -> None:
+        self.output_path = output_path
+        self.open_button.setEnabled(True)
+        self.progress.setValue(1000)
+        self.player.setSource(QUrl.fromLocalFile(str(output_path.resolve())))
+        timing = f"{elapsed_seconds:.1f}s"
+        speed = f" | {fps:.2f} fps" if fps is not None else ""
+        self.status_label.setText(f"Ready: {timing}{speed}")
+
+    def set_failed(self, error: str, elapsed_seconds: float, fps: float | None) -> None:
+        self.output_path = None
+        self.open_button.setEnabled(False)
+        speed = f" | {fps:.2f} fps" if fps is not None else ""
+        self.status_label.setText(f"Failed: {error} ({elapsed_seconds:.1f}s{speed})")
 
 
 class LargeSplitWindow(QWidget):

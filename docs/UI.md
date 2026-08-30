@@ -132,6 +132,7 @@ At minimum support:
 - Processed
 - side-by-side
 - resizable large side-by-side window for Split comparison
+- Video2X variant comparison grid for the current test segment
 
 Desired later:
 - draggable split/wipe;
@@ -140,6 +141,20 @@ Desired later:
 - still-frame comparison.
 
 Always synchronize time positions between original and processed preview.
+
+## Video2X variant grid
+The Variants tab benchmarks several practical Video2X live-action configurations on the current TestSegment without requiring the user to manually switch profiles between runs.
+
+Initial grid behavior:
+- plan all variants from the same source segment and output preset;
+- run variants sequentially by default to avoid VRAM contention;
+- show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
+- continue after a single variant fails;
+- keep exact commands visible in Properties;
+- allow opening a completed tile in Large View;
+- allow applying a tile as the active Video2X processing profile.
+
+The default live-action set excludes anime-specific models. Separate anime/custom benchmark sets may be added later.
 
 ## Queue
 A full processing job may take hours, so queue UI matters.

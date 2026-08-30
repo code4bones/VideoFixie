@@ -248,3 +248,14 @@ python3 scripts/bootstrap_video2x_runtime.py --force
 The bootstrap step extracts the AppImage into ignored local runtime files under `./share/video2x`, creates `./share/video2x/models` as a symlink to the extracted model directory, and writes `./bin/video2x` as a wrapper. This is an explicit setup operation, not GUI startup behavior.
 
 Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`.
+
+## Video2X variant benchmark
+Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment and runs them sequentially with the same preview output preset.
+
+Default live-action matrix:
+- RealCUGAN `models-pro`: default/no denoise, conservative, explicit noise 0 and denoise 3 where installed;
+- RealCUGAN `models-se`: default/no denoise, conservative, explicit noise 0, denoise 1 and denoise 2 where installed;
+- RealCUGAN `models-nose`: default/no denoise and explicit noise 0 where installed;
+- RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
+
+Anime-specific Video2X models are intentionally excluded from the default live-action matrix. A failed variant should record its error and allow the remaining variants to continue.

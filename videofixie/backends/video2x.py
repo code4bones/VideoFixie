@@ -202,6 +202,8 @@ def validate_profile(capabilities: BackendCapabilities, profile: ProcessingProfi
 def _realcugan_noise_suffix(noise_level: int | None) -> str:
     if noise_level is None or noise_level == 0:
         return "no-denoise"
+    if noise_level == -1:
+        return "conservative"
     if noise_level in (1, 2, 3):
         return f"denoise{noise_level}x"
     raise ValueError(f"Unsupported RealCUGAN noise level: {noise_level}")

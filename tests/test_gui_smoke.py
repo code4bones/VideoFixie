@@ -22,6 +22,8 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.windowTitle(), "VideoFixie")
         self.assertGreater(window.profile_combo.count(), 0)
         self.assertGreaterEqual(window.output_combo.count(), 5)
+        self.assertEqual(window.tabs.tabText(3), "Variants")
+        self.assertEqual(window.run_variants_button.text(), "Run Variants")
         self.assertFalse(hasattr(window, "env_box"))
         self.assertFalse(hasattr(window, "source_box"))
         self.assertFalse(hasattr(window, "profile_box"))
@@ -32,6 +34,117 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertIsNotNone(window.properties_dialog)
         self.assertIn("Open a source video", window.properties_dialog.command_text.toPlainText())
         self.assertTrue(hasattr(window.properties_dialog, "vapoursynth_plugins_label"))
+
+    def test_variant_grid_can_apply_generated_video2x_profile(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.benchmarks import Video2XBenchmarkVariant
+        from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.commands import PlannedCommand
+        from videofixie.domain.jobs import ProcessingJob, ProcessingStage, TestSegment
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.output_presets import preview_output_preset
+        from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
+        from videofixie.domain.settings import AppSettings
+        from videofixie.services.app import PlannedBenchmarkVariant, PlannedPreview, PlannedVideo2XBenchmark
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profile = ProcessingProfile(
+            slug="benchmark-realcugan-models-pro-x2-conservative",
+            name="Benchmark RealCUGAN models-pro conservative",
+            summary="Benchmark profile",
+            processor="realcugan",
+            model="models-pro",
+            scale=2,
+            noise_level=-1,
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-pro",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+            vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VSPipe R79"),
+        )
+        segment = TestSegment("Preview", 1, 4)
+        job = ProcessingJob(
+            source_path=Path("samples/1.mp4"),
+            output_path=Path("cache/previews/variant.mp4"),
+            profile=profile,
+            stages=(ProcessingStage("fake", PlannedCommand("python", ("-c", "pass"), "fake")),),
+        )
+        benchmark = PlannedVideo2XBenchmark(
+            media=media,
+            environment=environment,
+            segment=segment,
+            output_preset=preview_output_preset(),
+            variants=(
+                PlannedBenchmarkVariant(
+                    variant=Video2XBenchmarkVariant(profile, "RealCUGAN models-pro conservative", "realcugan / models-pro / x2 / conservative"),
+                    preview=PlannedPreview(media=media, environment=environment, profile=profile, segment=segment, job=job),
+                ),
+            ),
+        )
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.saved_settings = None
+
+            def profiles(self):
+                return bundled_profiles()
+
+            def load_settings(self):
+                return AppSettings(active_backend_slug=VAPOURSYNTH_BACKEND_SLUG)
+
+            def save_settings(self, settings):
+                self.saved_settings = settings
+
+            def discover_environment(self):
+                return environment
+
+            def plan_video2x_benchmark_with_context(self, *args, **kwargs):
+                del args, kwargs
+                return benchmark
+
+            def plan_preview_with_context(self, *args, **kwargs):
+                del args, kwargs
+                return PlannedPreview(media=media, environment=environment, profile=profile, segment=segment, job=job)
+
+        service = FakeService()
+        window = MainWindow(service=service)
+        window.source_path = Path("samples/1.mp4")
+        window.media = media
+        window.environment = environment
+        window.benchmark_plan = benchmark
+        window._build_variant_tiles()
+        window.apply_benchmark_variant(0)
+        app.processEvents()
+
+        self.assertEqual(window.profile_combo.currentData(), profile.slug)
+        self.assertEqual(window.settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
+        self.assertEqual(service.saved_settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
 
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

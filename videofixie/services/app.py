@@ -6,6 +6,7 @@ from pathlib import Path
 from videofixie.backends.ffmpeg import FFmpegAdapter
 from videofixie.backends.vapoursynth import VapourSynthAdapter
 from videofixie.backends.video2x import Video2XAdapter
+from videofixie.domain.benchmarks import Video2XBenchmarkVariant
 from videofixie.domain.backends import (
     VAPOURSYNTH_BACKEND_SLUG,
     VIDEO2X_BACKEND_SLUG,
@@ -18,6 +19,7 @@ from videofixie.domain.output_presets import OutputPreset, bundled_output_preset
 from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
 from videofixie.domain.release_presets import ReleasePreset, default_release_preset
 from videofixie.domain.settings import AppSettings
+from videofixie.services.benchmarks import build_video2x_benchmark_variants
 from videofixie.services.environment import MachineEnvironment, discover_environment
 from videofixie.services.history import PreviewResult, SavedCut, VideoFixieHistory
 from videofixie.services.planner import build_test_segment_job
@@ -32,6 +34,21 @@ class PlannedPreview:
     segment: TestSegment
     job: ProcessingJob
     output_preset: OutputPreset = field(default_factory=preview_output_preset)
+
+
+@dataclass(frozen=True)
+class PlannedBenchmarkVariant:
+    variant: Video2XBenchmarkVariant
+    preview: PlannedPreview
+
+
+@dataclass(frozen=True)
+class PlannedVideo2XBenchmark:
+    media: MediaInfo
+    environment: MachineEnvironment
+    segment: TestSegment
+    output_preset: OutputPreset
+    variants: tuple[PlannedBenchmarkVariant, ...]
 
 
 class VideoFixieService:
@@ -212,6 +229,70 @@ class VideoFixieService:
             output_preset=selected_output_preset,
             segment=segment,
             job=job,
+        )
+
+    def plan_video2x_benchmark_with_context(
+        self,
+        source_path: str | Path,
+        work_dir: str | Path,
+        segment: TestSegment,
+        media: MediaInfo,
+        environment: MachineEnvironment,
+        device_index: int | None = None,
+        output_preset: OutputPreset | None = None,
+    ) -> PlannedVideo2XBenchmark:
+        if not environment.ffmpeg.available or environment.ffmpeg.path is None:
+            raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
+        if not environment.ffprobe.available or environment.ffprobe.path is None:
+            raise RuntimeError(f"ffprobe is unavailable: {environment.ffprobe.error}")
+        if not environment.video2x.available or environment.video2x.path is None:
+            raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
+
+        settings = self.load_settings()
+        selected_device = _selected_video2x_device(VIDEO2X_BACKEND_SLUG, environment, device_index)
+        selected_output_preset = output_preset or preview_output_preset()
+        models_directory = _project_path(self.project_root, settings.models_directory)
+        variants = build_video2x_benchmark_variants(environment.video2x_capabilities, models_directory)
+        if not variants:
+            raise RuntimeError(f"No runnable Video2X benchmark variants found. Models directory: {models_directory}")
+
+        planned_variants: list[PlannedBenchmarkVariant] = []
+        ffmpeg = FFmpegAdapter(ffmpeg_path=environment.ffmpeg.path, ffprobe_path=environment.ffprobe.path)
+        video2x = Video2XAdapter(environment.video2x.path)
+        for variant in variants:
+            job = build_test_segment_job(
+                source_path=source_path,
+                work_dir=_project_path(self.project_root, work_dir),
+                profile=variant.profile,
+                segment=segment,
+                device_index=selected_device,
+                ffmpeg=ffmpeg,
+                video2x=video2x,
+                capabilities=environment.video2x_capabilities,
+                output_preset=selected_output_preset,
+                backend_slug=VIDEO2X_BACKEND_SLUG,
+                models_directory=models_directory,
+            )
+            planned_variants.append(
+                PlannedBenchmarkVariant(
+                    variant=variant,
+                    preview=PlannedPreview(
+                        media=media,
+                        environment=environment,
+                        profile=variant.profile,
+                        output_preset=selected_output_preset,
+                        segment=segment,
+                        job=job,
+                    ),
+                )
+            )
+
+        return PlannedVideo2XBenchmark(
+            media=media,
+            environment=environment,
+            segment=segment,
+            output_preset=selected_output_preset,
+            variants=tuple(planned_variants),
         )
 
 

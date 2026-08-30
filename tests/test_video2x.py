@@ -107,6 +107,17 @@ class Video2XTest(unittest.TestCase):
             ),
         )
 
+    def test_required_model_paths_support_realcugan_conservative_variant(self) -> None:
+        profile = dataclasses.replace(bundled_profiles()[0], model="models-pro", noise_level=-1)
+
+        self.assertEqual(
+            required_model_relative_paths(profile),
+            (
+                Path("realcugan/models-pro/up2x-conservative.param"),
+                Path("realcugan/models-pro/up2x-conservative.bin"),
+            ),
+        )
+
     def test_validate_model_files_rejects_missing_realcugan_variant(self) -> None:
         profile = dataclasses.replace(bundled_profiles()[0], model="models-pro", noise_level=1)
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -255,6 +255,62 @@ class VideoFixieServiceTest(unittest.TestCase):
         discover_environment.assert_not_called()
         probe.assert_not_called()
 
+    def test_plan_video2x_benchmark_with_context_builds_variant_jobs(self) -> None:
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={
+                "realcugan": ProcessorCapability(
+                    "realcugan",
+                    ("models-pro", "models-se", "models-nose"),
+                    supports_noise_level=True,
+                ),
+            },
+            devices=(GpuDevice(3, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "/project/bin/video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        segment = TestSegment("Face", 1, 6)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = Path(tmp_dir) / "share" / "video2x" / "models"
+            for profile in (
+                _profile("realcugan", "models-pro", 2, None),
+                _profile("realcugan", "models-pro", 2, -1),
+                _profile("realcugan", "models-pro", 2, 0),
+                _profile("realcugan", "models-nose", 2, None),
+            ):
+                _create_model_files_for_profile(models_dir, profile)
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings())
+            benchmark = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_video2x_benchmark_with_context(
+                "samples/1.mp4",
+                "cache/previews",
+                segment,
+                media=media,
+                environment=environment,
+            )
+
+        self.assertEqual(benchmark.segment, segment)
+        self.assertEqual(len(benchmark.variants), 5)
+        self.assertEqual({variant.preview.output_preset.slug for variant in benchmark.variants}, {"preview"})
+        self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
+        self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))
+
 
 def _create_model_files(root: Path, profile) -> Path:
     models_dir = root / "share" / "video2x" / "models"
@@ -263,3 +319,24 @@ def _create_model_files(root: Path, profile) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("model fixture\n", encoding="utf-8")
     return models_dir
+
+
+def _profile(processor: str, model: str, scale: int, noise_level: int | None):
+    from videofixie.domain.profiles import ProcessingProfile
+
+    return ProcessingProfile(
+        slug="fixture",
+        name="Fixture",
+        summary="Fixture",
+        processor=processor,
+        model=model,
+        scale=scale,
+        noise_level=noise_level,
+    )
+
+
+def _create_model_files_for_profile(models_dir: Path, profile) -> None:
+    for relative_path in required_model_relative_paths(profile):
+        path = models_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("model fixture\n", encoding="utf-8")
