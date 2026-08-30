@@ -11,7 +11,7 @@ from videofixie.domain.profiles import ProcessingProfile
 REALCUGAN_LIVE_ACTION_MATRIX: tuple[tuple[str, tuple[int | None, ...]], ...] = (
     ("models-pro", (None, 0, 3)),
     ("models-se", (None, 0, 1, 2)),
-    ("models-nose", (None, 0)),
+    ("models-nose", (0,)),
 )
 
 

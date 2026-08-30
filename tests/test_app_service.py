@@ -293,6 +293,7 @@ class VideoFixieServiceTest(unittest.TestCase):
                 _profile("realcugan", "models-pro", 2, -1),
                 _profile("realcugan", "models-pro", 2, 0),
                 _profile("realcugan", "models-nose", 2, None),
+                _profile("realcugan", "models-nose", 2, 0),
             ):
                 _create_model_files_for_profile(models_dir, profile)
             store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
@@ -306,7 +307,7 @@ class VideoFixieServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(benchmark.segment, segment)
-        self.assertEqual(len(benchmark.variants), 4)
+        self.assertEqual(len(benchmark.variants), 3)
         self.assertEqual({variant.preview.output_preset.slug for variant in benchmark.variants}, {"preview"})
         self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
         self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))

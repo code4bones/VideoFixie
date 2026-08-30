@@ -45,7 +45,6 @@ class Video2XBenchmarkMatrixTest(unittest.TestCase):
                 "benchmark-realcugan-models-pro-x2-default",
                 "benchmark-realcugan-models-pro-x2-noise0",
                 "benchmark-realcugan-models-se-x2-noise1",
-                "benchmark-realcugan-models-nose-x2-default",
                 "benchmark-realcugan-models-nose-x2-noise0",
                 "benchmark-realesrgan-plus-x4",
             ],

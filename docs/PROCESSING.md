@@ -258,7 +258,7 @@ exit code, elapsed time and final status.
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
 - RealCUGAN `models-se`: default/no denoise, explicit noise 0, denoise 1 and denoise 2 where installed;
-- RealCUGAN `models-nose`: default/no denoise and explicit noise 0 where installed;
+- RealCUGAN `models-nose`: explicit noise 0 where installed; default is excluded because Video2X 6.4 tries the missing conservative model file;
 - RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
 
 Anime-specific Video2X models are intentionally excluded from the default live-action matrix. A failed variant should record its error and allow the remaining variants to continue.
