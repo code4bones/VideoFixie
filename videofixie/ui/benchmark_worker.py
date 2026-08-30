@@ -6,6 +6,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from videofixie.jobs.output_validation import (
+    apply_media_validation_error,
+    build_media_validation_stage,
+    media_validation_ffmpeg_path,
+    missing_media_validation_result,
+)
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.app import PlannedVideo2XBenchmark
@@ -208,6 +214,32 @@ class BenchmarkWorker(QObject):
             stages=tuple(stage_results),
             cancelled=self.cancellation_token.is_cancelled,
         )
+        if run_result.succeeded:
+            validation_stage = build_media_validation_stage(
+                job.output_path,
+                ffmpeg_path=media_validation_ffmpeg_path(job),
+            )
+            self.stageStarted.emit(index, validation_stage.label, _stage_display(validation_stage))
+            if variant_log is not None:
+                variant_log.append_stage_start(validation_stage)
+            if job.output_path.exists():
+                validation_result = runner.run_stage(
+                    validation_stage,
+                    cancellation_token=self.cancellation_token,
+                    on_output=lambda line, variant_index=index: self._handle_logged_output(variant_log, variant_index, line),
+                )
+                validation_result = apply_media_validation_error(validation_stage, validation_result, job.output_path)
+            else:
+                validation_result = missing_media_validation_result(validation_stage, job.output_path)
+            if variant_log is not None:
+                variant_log.append_stage_result(validation_stage, validation_result, include_output=False)
+            stage_results.append(validation_result)
+            run_result = JobRunResult(
+                stages=tuple(stage_results),
+                cancelled=self.cancellation_token.is_cancelled,
+            )
+            if not validation_result.succeeded:
+                variant_error = validation_result.runtime_error or f"{validation_stage.label} failed with exit {validation_result.exit_code}"
         if variant_log is not None:
             variant_log.append_status(_job_status(run_result), variant_error)
         return BenchmarkVariantRun(

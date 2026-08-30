@@ -5,11 +5,17 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from videofixie.domain.release_presets import ReleasePreset
+from videofixie.jobs.output_validation import (
+    apply_media_validation_error,
+    build_media_validation_stage,
+    media_validation_ffmpeg_path,
+    missing_media_validation_result,
+)
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.app import PlannedRelease
 from videofixie.services.run_logs import RunLogFile, create_run_directory
-from videofixie.ui.preview_worker import _job_status, _parse_preview_progress_line, _stage_display
+from videofixie.ui.preview_worker import _job_details, _job_status, _parse_preview_progress_line, _stage_display
 
 
 class ReleaseWorker(QObject):
@@ -63,11 +69,30 @@ class ReleaseWorker(QObject):
                     break
 
             job_result = JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled)
+            if job_result.succeeded:
+                validation_stage = build_media_validation_stage(
+                    job.output_path,
+                    ffmpeg_path=media_validation_ffmpeg_path(job),
+                    max_seconds=20.0,
+                )
+                if run_log is not None:
+                    run_log.append_stage_start(validation_stage)
+                self.stageStarted.emit(validation_stage.label, _stage_display(validation_stage))
+                if job.output_path.exists():
+                    validation_result = runner.run_stage(
+                        validation_stage,
+                        cancellation_token=self.cancellation_token,
+                        on_output=lambda line: self._handle_logged_output(run_log, line),
+                    )
+                    validation_result = apply_media_validation_error(validation_stage, validation_result, job.output_path)
+                else:
+                    validation_result = missing_media_validation_result(validation_stage, job.output_path)
+                if run_log is not None:
+                    run_log.append_stage_result(validation_stage, validation_result, include_output=False)
+                results.append(validation_result)
+                job_result = JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled)
             if run_log is not None:
-                details = None
-                if results and results[-1].runtime_error:
-                    details = results[-1].runtime_error
-                run_log.append_status(_job_status(job_result), details)
+                run_log.append_status(_job_status(job_result), _job_details(job_result))
             self.finished.emit(job_result)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))

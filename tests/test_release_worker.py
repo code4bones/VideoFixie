@@ -12,6 +12,7 @@ from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import bundled_output_presets
 from videofixie.domain.profiles import bundled_profiles
 from videofixie.domain.release_presets import default_release_preset
+from videofixie.jobs.output_validation import MEDIA_VALIDATION_LABEL
 from videofixie.jobs.runner import ProcessLogLine, StageRunResult
 from videofixie.services.app import PlannedRelease
 from videofixie.services.environment import MachineEnvironment, ToolStatus
@@ -53,6 +54,7 @@ class ReleaseWorkerTest(unittest.TestCase):
         self.assertIn("VideoFixie release run", text)
         self.assertIn("status: running", text)
         self.assertIn("stdout: live Run Video2X AI processing", text)
+        self.assertIn(MEDIA_VALIDATION_LABEL, text)
         self.assertIn("status: succeeded", text)
 
     def test_release_worker_rejects_video2x_runtime_error(self) -> None:
@@ -82,6 +84,37 @@ class ReleaseWorkerTest(unittest.TestCase):
         self.assertEqual(len(finished), 1)
         self.assertFalse(finished[0].succeeded)
         self.assertFalse(output_path.exists())
+
+    def test_release_worker_rejects_undecodable_output(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.release_worker import ReleaseWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "outputs" / "release.mp4"
+            release = _planned_release(output_path)
+            finished = []
+
+            def fake_run_stage(stage, **kwargs):
+                del kwargs
+                if stage.label == "Mux release streams":
+                    output_path.write_bytes(b"not media")
+                if stage.label == MEDIA_VALIDATION_LABEL:
+                    return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("Prediction is not allowed in AAC-LC",))
+                return StageRunResult(stage.label, stage.command, exit_code=0)
+
+            worker = ReleaseWorker(release)
+            worker.finished.connect(finished.append)
+            with patch("videofixie.ui.release_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0].succeeded)
+        failed = finished[0].stages[-1]
+        self.assertEqual(failed.label, MEDIA_VALIDATION_LABEL)
+        self.assertIn("Output media validation failed", failed.runtime_error or "")
 
 
 def _planned_release(output_path: Path) -> PlannedRelease:

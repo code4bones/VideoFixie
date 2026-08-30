@@ -99,6 +99,10 @@ class MainWindow(QMainWindow):
         self.release_worker: ReleaseWorker | None = None
         self.active_release_row: ReleaseQueueRow | None = None
         self.active_release_plan = None
+        self.source_session = 0
+        self.preview_session = 0
+        self.benchmark_session = 0
+        self.release_session = 0
         self.metrics_collector = SystemMetricsCollector()
         self.gpu_load_history: list[int] = []
         self.cpu_load_history: list[int] = []
@@ -498,8 +502,13 @@ class MainWindow(QMainWindow):
             return
 
         self.source_path = path
+        self.source_session += 1
+        self._cancel_active_source_work()
         self._suppress_planning = True
         try:
+            self.pause_active()
+            if self.large_split_window is not None:
+                self.large_split_window.close()
             self.player.setSource(QUrl.fromLocalFile(str(path)))
             self.split_original_player.setSource(QUrl.fromLocalFile(str(path)))
             self.processed_player.setSource(QUrl())
@@ -507,6 +516,12 @@ class MainWindow(QMainWindow):
             self._clear_variant_tiles()
             self.benchmark_plan = None
             self.benchmark_outputs = {}
+            self.active_benchmark_indices = set()
+            self.finished_benchmark_indices = set()
+            self.current_benchmark_indices = set()
+            self._clear_release_queue()
+            self.current_release_preset = None
+            self.current_job = None
             self.current_plan_segment = None
             self.running_preview_job = None
             self.running_preview_segment = None
@@ -531,6 +546,20 @@ class MainWindow(QMainWindow):
         finally:
             self._suppress_planning = False
         self._update_profile_summary()
+
+    def _cancel_active_source_work(self) -> None:
+        if self.preview_worker is not None:
+            self.preview_worker.cancel()
+        if self.benchmark_worker is not None:
+            self.benchmark_worker.cancel()
+        if self.release_worker is not None:
+            self.release_worker.cancel()
+        self.preview_session = 0
+        self.benchmark_session = 0
+        self.release_session = 0
+        self._set_preview_running(False)
+        self._set_benchmark_running(False)
+        self.cancel_release_button.setEnabled(False)
 
     def plan_preview(self) -> None:
         if self._suppress_planning:
@@ -775,6 +804,7 @@ class MainWindow(QMainWindow):
         segment = self.current_plan_segment or self._current_segment()
         self.running_preview_job = job
         self.running_preview_segment = segment
+        self.preview_session = self.source_session
 
         job.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.preview_thread = QThread(self)
@@ -843,6 +873,7 @@ class MainWindow(QMainWindow):
             return
 
         self.benchmark_thread = QThread(self)
+        self.benchmark_session = self.source_session
         self.benchmark_worker = BenchmarkWorker(
             self.benchmark_plan,
             indices,
@@ -894,11 +925,15 @@ class MainWindow(QMainWindow):
         self._update_profile_summary()
 
     def _on_benchmark_variant_started(self, index: int, label: str) -> None:
+        if not self._benchmark_callback_is_current(index):
+            return
         self.active_benchmark_indices.add(index)
         self._variant_tile(index).set_running(label)
         self._update_benchmark_running_status()
 
     def _on_benchmark_stage_started(self, index: int, label: str, command: str) -> None:
+        if not self._benchmark_callback_is_current(index):
+            return
         if index < 0:
             self.variant_status_label.setText(label)
             self.command_text.appendPlainText(f"\n[Benchmark queue] Running: {label}\n{command}")
@@ -910,6 +945,8 @@ class MainWindow(QMainWindow):
         self._refresh_properties_dialog()
 
     def _on_benchmark_output(self, index: int, line: str) -> None:
+        if not self._benchmark_callback_is_current(index):
+            return
         if index < 0:
             self.command_text.appendPlainText(f"[Benchmark queue] {line}")
             self._refresh_properties_dialog()
@@ -919,6 +956,8 @@ class MainWindow(QMainWindow):
         self._refresh_properties_dialog()
 
     def _on_benchmark_progress(self, index: int, progress) -> None:
+        if not self._benchmark_callback_is_current(index):
+            return
         if index < 0:
             if progress.percent is not None:
                 self.variant_status_label.setText(f"Preparing benchmark source: {progress.percent:.1f}%")
@@ -926,6 +965,8 @@ class MainWindow(QMainWindow):
         self._variant_tile(index).set_progress(progress)
 
     def _on_benchmark_variant_finished(self, run: BenchmarkVariantRun) -> None:
+        if not self._benchmark_callback_is_current(run.index):
+            return
         self.active_benchmark_indices.discard(run.index)
         self.finished_benchmark_indices.add(run.index)
         tile = self._variant_tile(run.index)
@@ -943,6 +984,8 @@ class MainWindow(QMainWindow):
             self._update_benchmark_running_status()
 
     def _on_benchmark_finished(self) -> None:
+        if self.benchmark_session != self.source_session:
+            return
         self.active_benchmark_indices.clear()
         completed = sum(1 for tile in self.variant_tiles if tile.output_path is not None)
         self.variant_status_label.setText(f"Variant benchmark finished: {completed}/{len(self.variant_tiles)} ready")
@@ -950,6 +993,8 @@ class MainWindow(QMainWindow):
         self._start_next_release()
 
     def _on_benchmark_failed(self, message: str) -> None:
+        if self.benchmark_session != self.source_session:
+            return
         self.active_benchmark_indices.clear()
         self.variant_status_label.setText("Variant benchmark failed")
         self._set_benchmark_running(False)
@@ -961,6 +1006,7 @@ class MainWindow(QMainWindow):
             self.benchmark_thread.deleteLater()
         self.benchmark_worker = None
         self.benchmark_thread = None
+        self.benchmark_session = 0
 
     def _set_benchmark_running(self, running: bool) -> None:
         self.run_variants_button.setText("Cancel Variants" if running else "Run Variants")
@@ -979,6 +1025,13 @@ class MainWindow(QMainWindow):
         if failed:
             parts.append(f"{failed} failed")
         self.variant_status_label.setText("Variant benchmark running: " + ", ".join(parts))
+
+    def _benchmark_callback_is_current(self, index: int) -> bool:
+        if self.benchmark_session != self.source_session:
+            return False
+        if index < 0:
+            return True
+        return 0 <= index < len(self.variant_tiles)
 
     def _apply_system_metrics(self, metrics) -> None:
         if metrics.gpu_percent is not None:
@@ -1017,6 +1070,7 @@ class MainWindow(QMainWindow):
         release, row = self.release_queue.pop(0)
         self.active_release_plan = release
         self.active_release_row = row
+        self.release_session = self.source_session
         row.set_running("Starting")
         self.release_thread = QThread(self)
         self.release_worker = ReleaseWorker(release, run_logs_root=self._run_logs_root())
@@ -1042,6 +1096,8 @@ class MainWindow(QMainWindow):
             self.release_worker.cancel()
 
     def _on_release_stage_started(self, label: str, command: str) -> None:
+        if self.release_session != self.source_session:
+            return
         if self.active_release_row is not None:
             self.active_release_row.set_running(label)
         self.release_queue_status.setText(label)
@@ -1049,14 +1105,20 @@ class MainWindow(QMainWindow):
         self._refresh_properties_dialog()
 
     def _on_release_output(self, line: str) -> None:
+        if self.release_session != self.source_session:
+            return
         self.command_text.appendPlainText(f"[Release] {line}")
         self._refresh_properties_dialog()
 
     def _on_release_progress(self, progress) -> None:
+        if self.release_session != self.source_session:
+            return
         if self.active_release_row is not None:
             self.active_release_row.set_progress(progress)
 
     def _on_release_finished(self, result) -> None:
+        if self.release_session != self.source_session:
+            return
         if self.active_release_row is not None:
             elapsed = sum(stage.duration_seconds for stage in result.stages)
             progress_events = [progress for stage in result.stages for progress in stage.progress]
@@ -1075,6 +1137,8 @@ class MainWindow(QMainWindow):
         self.cancel_release_button.setEnabled(False)
 
     def _on_release_failed(self, message: str) -> None:
+        if self.release_session != self.source_session:
+            return
         if self.active_release_row is not None:
             self.active_release_row.set_failed(message, 0, None)
         self.cancel_release_button.setEnabled(False)
@@ -1086,10 +1150,26 @@ class MainWindow(QMainWindow):
             self.release_thread.deleteLater()
         self.release_worker = None
         self.release_thread = None
+        self.release_session = 0
         self.active_release_row = None
         self.active_release_plan = None
         if self.release_queue:
             QTimer.singleShot(0, self._start_next_release)
+
+    def _clear_release_queue(self) -> None:
+        self.release_queue = []
+        if self.active_release_row is not None:
+            self.active_release_row.setParent(None)
+            self.active_release_row.deleteLater()
+            self.active_release_row = None
+        while self.release_queue_layout.count():
+            item = self.release_queue_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.active_release_plan = None
+        self.release_queue_status.setText("Idle")
 
     def _mark_benchmark_queue(self, indices: tuple[int, ...] | None) -> None:
         selected_indices = indices or tuple(range(len(self.variant_tiles)))
@@ -1208,15 +1288,21 @@ class MainWindow(QMainWindow):
         self.profile_combo.addItem(profile.name, profile.slug)
 
     def _on_preview_stage_started(self, label: str, command: str) -> None:
+        if self.preview_session != self.source_session:
+            return
         self.preview_status.setText(label)
         self.command_text.appendPlainText(f"\nRunning: {label}\n{command}")
         self._refresh_properties_dialog()
 
     def _on_preview_output(self, line: str) -> None:
+        if self.preview_session != self.source_session:
+            return
         self.command_text.appendPlainText(line)
         self._refresh_properties_dialog()
 
     def _on_preview_progress(self, progress) -> None:
+        if self.preview_session != self.source_session:
+            return
         if progress.percent is not None:
             self.preview_progress.setValue(round(progress.percent * 10))
         details = []
@@ -1229,6 +1315,8 @@ class MainWindow(QMainWindow):
         self.preview_status.setText(" | ".join(details) if details else "Preview running")
 
     def _on_preview_finished(self, result) -> None:
+        if self.preview_session != self.source_session:
+            return
         finished_job = self.running_preview_job or self.current_job
         output_path = successful_output_path(result, finished_job.output_path) if finished_job is not None else None
         self._set_preview_running(False)
@@ -1261,6 +1349,8 @@ class MainWindow(QMainWindow):
         self._start_next_release()
 
     def _on_preview_failed(self, message: str) -> None:
+        if self.preview_session != self.source_session:
+            return
         self._set_preview_running(False)
         self.preview_status.setText("Preview failed")
         QMessageBox.critical(self, "Preview execution failed", message)
@@ -1271,6 +1361,7 @@ class MainWindow(QMainWindow):
             self.preview_thread.deleteLater()
         self.preview_worker = None
         self.preview_thread = None
+        self.preview_session = 0
         self.running_preview_job = None
         self.running_preview_segment = None
 

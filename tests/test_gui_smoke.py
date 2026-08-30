@@ -1319,6 +1319,105 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window._current_segment(), TestSegment("Preview", 0.0, 15.0, TestSegmentKind.CUSTOM))
         self.assertEqual(window.cut_combo.count(), 1)
         self.assertIsNone(window.cut_combo.currentData())
+        self.assertIsNotNone(window.current_job)
+        assert window.current_job is not None
+        self.assertEqual(window.current_job.source_path, Path("/media/clip-b.mp4"))
+        self.assertIsNone(window.processed_output_path)
+        self.assertIsNone(window.processed_segment)
+        self.assertIsNone(window.benchmark_plan)
+        self.assertEqual(window.benchmark_outputs, {})
+        self.assertEqual(window.release_queue, [])
+        self.assertIsNone(window.current_release_preset)
+
+    def test_opening_new_source_ignores_stale_preview_finish(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.commands import PlannedCommand
+        from videofixie.domain.jobs import ProcessingJob, ProcessingStage, TestSegment, TestSegmentKind
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.domain.settings import AppSettings
+        from videofixie.jobs.runner import JobRunResult, StageRunResult
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        profiles = bundled_profiles()
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+
+        class FakeService:
+            def profiles(self):
+                return profiles
+
+            def load_settings(self):
+                return AppSettings(active_backend_slug=VIDEO2X_BACKEND_SLUG)
+
+            def discover_environment(self):
+                return environment
+
+            def analyze_source(self, path):
+                return MediaInfo(
+                    path=path,
+                    format_name="mp4",
+                    duration_seconds=120,
+                    bit_rate=100,
+                    size_bytes=1000,
+                    video_streams=(),
+                    audio_streams=(),
+                )
+
+            def load_source_cut(self, path):
+                del path
+                return None
+
+            def saved_cuts_for_source(self, path):
+                del path
+                return ()
+
+            def preview_results_for_source(self, path):
+                del path
+                return ()
+
+        window = MainWindow(service=FakeService())
+        old_source = Path("/media/clip-a.mp4")
+        old_output = Path("/tmp/old-preview.mp4")
+        profile = profiles[0]
+        old_job = ProcessingJob(
+            source_path=old_source,
+            output_path=old_output,
+            profile=profile,
+            stages=(ProcessingStage("old", PlannedCommand("python", ("-c", "pass"), "old")),),
+        )
+        window.load_source(old_source)
+        window.running_preview_job = old_job
+        window.running_preview_segment = TestSegment("Old", 10, 20, TestSegmentKind.CUSTOM)
+        window.preview_session = window.source_session
+
+        window.load_source(Path("/media/clip-b.mp4"))
+        stale_result = JobRunResult(stages=(StageRunResult("old", old_job.stages[0].command, exit_code=0),))
+        window._on_preview_finished(stale_result)
+
+        self.assertIsNone(window.processed_output_path)
+        self.assertNotEqual(window.source_path, old_source)
 
     def test_finished_preview_uses_running_segment_not_latest_replanned_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -1449,7 +1548,7 @@ class GuiSmokeTest(unittest.TestCase):
                         sys.executable,
                         (
                             "-c",
-                            f"from pathlib import Path; Path({str(output_path)!r}).write_bytes(b'preview'); print('frame=1/1; fps=1.0')",
+                            f"import shutil; shutil.copyfile('samples/1.mp4', {str(output_path)!r}); print('frame=1/1; fps=1.0')",
                         ),
                         "fake preview",
                     )

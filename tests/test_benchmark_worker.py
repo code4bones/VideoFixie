@@ -14,6 +14,7 @@ from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile
 from videofixie.backends.video2x import VIDEO2X_PROCESSING_LABEL
+from videofixie.jobs.output_validation import MEDIA_VALIDATION_LABEL
 from videofixie.jobs.runner import ProcessLogLine, StageRunResult
 from videofixie.services.app import PlannedBenchmarkVariant, PlannedPreview, PlannedVideo2XBenchmark
 from videofixie.services.environment import MachineEnvironment, ToolStatus
@@ -39,6 +40,8 @@ class BenchmarkWorkerTest(unittest.TestCase):
                 calls.append(stage.command.label)
                 if stage.command.label == "shared cut":
                     return StageRunResult(stage.label, stage.command, exit_code=0)
+                if stage.command.label == MEDIA_VALIDATION_LABEL:
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
                 if stage.command.label == "variant one":
                     return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("failed",))
                 output_2.write_bytes(b"ok")
@@ -58,7 +61,7 @@ class BenchmarkWorkerTest(unittest.TestCase):
                 worker.run()
 
         self.assertEqual(len(finished), 2)
-        self.assertEqual(calls, ["shared cut", "variant one", "variant two"])
+        self.assertEqual(calls, ["shared cut", "variant one", "variant two", MEDIA_VALIDATION_LABEL])
         self.assertIsNotNone(finished[0].error)
         self.assertIsNone(finished[0].output_path)
         self.assertEqual(finished[1].output_path, output_2)
@@ -90,6 +93,8 @@ class BenchmarkWorkerTest(unittest.TestCase):
             def fake_run_stage(stage, **kwargs):
                 nonlocal active, max_active
                 if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                if stage.command.label == MEDIA_VALIDATION_LABEL:
                     return StageRunResult(stage.label, stage.command, exit_code=0)
                 with lock:
                     active += 1
@@ -161,6 +166,36 @@ class BenchmarkWorkerTest(unittest.TestCase):
         assert finished[0].error is not None
         self.assertIn("Vulkan", finished[0].error)
 
+    def test_worker_rejects_undecodable_variant_output(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "corrupt.mp4"
+            benchmark = _benchmark((output_path,))
+            finished = []
+
+            def fake_run_stage(stage, **kwargs):
+                del kwargs
+                if stage.command.label == "variant one":
+                    output_path.write_bytes(b"not media")
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                if stage.command.label == MEDIA_VALIDATION_LABEL:
+                    return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("Invalid NAL unit size",))
+                return StageRunResult(stage.label, stage.command, exit_code=0)
+
+            worker = BenchmarkWorker(benchmark)
+            worker.variantFinished.connect(finished.append)
+            with patch("videofixie.ui.benchmark_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+        self.assertEqual(len(finished), 1)
+        self.assertIsNone(finished[0].output_path)
+        self.assertIn("Output media validation failed", finished[0].error or "")
+
     def test_worker_writes_run_logs_for_shared_cut_and_variants(self) -> None:
         from PySide6.QtWidgets import QApplication
 
@@ -181,6 +216,8 @@ class BenchmarkWorkerTest(unittest.TestCase):
                     on_output(ProcessLogLine("stdout", f"live {stage.command.label}"))
                 if stage.command.label == "shared cut":
                     return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("cut",))
+                if stage.command.label == MEDIA_VALIDATION_LABEL:
+                    return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("valid",))
                 if stage.command.label == "variant one":
                     return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("failed",))
                 output_2.write_bytes(b"ok")
@@ -208,6 +245,7 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertIn("stdout: live variant one", failed_text)
         self.assertIn("status: succeeded", completed_text)
         self.assertIn("stdout: live variant two", completed_text)
+        self.assertIn(MEDIA_VALIDATION_LABEL, completed_text)
         self.assertEqual(finished[0].log_path, failed_log)
 
     def test_preview_worker_writes_run_log(self) -> None:
@@ -238,6 +276,8 @@ class BenchmarkWorkerTest(unittest.TestCase):
             )
 
             def fake_run_stage(stage, **kwargs):
+                if stage.command.label == "preview command":
+                    output_path.write_bytes(b"ok")
                 return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("preview-ready",))
 
             worker = PreviewWorker(job, run_logs_root=logs_root)
@@ -250,7 +290,53 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(len(log_paths), 1)
         self.assertIn("VideoFixie preview run", text)
         self.assertIn("preview command", text)
+        self.assertIn(MEDIA_VALIDATION_LABEL, text)
         self.assertIn("preview-ready", text)
+
+    def test_preview_worker_rejects_undecodable_output(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.preview_worker import PreviewWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "preview.mp4"
+            profile = ProcessingProfile(
+                slug="preview-profile",
+                name="Preview Profile",
+                summary="Fixture",
+                processor="realcugan",
+                model="models-se",
+                scale=2,
+                noise_level=None,
+            )
+            command = PlannedCommand("python", ("-c", "pass"), "preview command")
+            job = ProcessingJob(
+                source_path=Path("samples/1.mp4"),
+                output_path=output_path,
+                profile=profile,
+                stages=(ProcessingStage("preview command", command),),
+            )
+            finished = []
+
+            def fake_run_stage(stage, **kwargs):
+                del kwargs
+                if stage.command.label == "preview command":
+                    output_path.write_bytes(b"not media")
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("Invalid NAL unit size",))
+
+            worker = PreviewWorker(job)
+            worker.finished.connect(finished.append)
+            with patch("videofixie.ui.preview_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0].succeeded)
+        failed = finished[0].stages[-1]
+        self.assertEqual(failed.label, MEDIA_VALIDATION_LABEL)
+        self.assertIn("Output media validation failed", failed.runtime_error or "")
 
 
 def _benchmark(output_paths: tuple[Path, ...]) -> PlannedVideo2XBenchmark:

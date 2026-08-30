@@ -8,6 +8,12 @@ from PySide6.QtCore import QObject, Signal, Slot
 from videofixie.backends.vapoursynth import parse_progress_line as parse_vapoursynth_progress_line
 from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
 from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
+from videofixie.jobs.output_validation import (
+    apply_media_validation_error,
+    build_media_validation_stage,
+    media_validation_ffmpeg_path,
+    missing_media_validation_result,
+)
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.run_logs import RunLogFile, create_run_directory
@@ -64,8 +70,30 @@ class PreviewWorker(QObject):
                 if not result.succeeded:
                     break
             job_result = JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled)
+            if job_result.succeeded:
+                validation_stage = build_media_validation_stage(
+                    self.job.output_path,
+                    ffmpeg_path=media_validation_ffmpeg_path(self.job),
+                )
+                self.stageStarted.emit(validation_stage.label, _stage_display(validation_stage))
+                if run_log is not None:
+                    run_log.append_stage_start(validation_stage)
+                if self.job.output_path.exists():
+                    validation_result = runner.run_stage(
+                        validation_stage,
+                        cancellation_token=self.cancellation_token,
+                        on_output=self._handle_output,
+                    )
+                    validation_result = apply_media_validation_error(validation_stage, validation_result, self.job.output_path)
+                else:
+                    validation_result = missing_media_validation_result(validation_stage, self.job.output_path)
+                if run_log is not None:
+                    run_log.append_stage_result(validation_stage, validation_result)
+                results.append(validation_result)
+                job_result = JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled)
             if run_log is not None:
-                run_log.append_status(_job_status(job_result))
+                details = _job_details(job_result)
+                run_log.append_status(_job_status(job_result), details)
             self.finished.emit(job_result)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
@@ -104,3 +132,10 @@ def _job_status(result: JobRunResult) -> str:
     if result.cancelled:
         return "cancelled"
     return "failed"
+
+
+def _job_details(result: JobRunResult) -> str | None:
+    if result.succeeded or not result.stages:
+        return None
+    failed = result.stages[-1]
+    return failed.runtime_error

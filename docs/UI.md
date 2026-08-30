@@ -215,6 +215,9 @@ Vulkan reported device lost while RealESRGAN was running.
 Do not replace the raw backend message; retain it in the log.
 The Properties command log should include `run_log:` or `run_log_dir:` entries for active preview
 and Variants runs so failed tiles can be matched to `cache/runs/<run-id>/variant-XX-*.log`.
+Generated Preview, Variant and Release outputs should pass FFmpeg decode validation before they are
+shown as ready. Failed outputs must preserve the decoder message and must not be loaded into
+QtMultimedia.
 
 ## Settings
 Application settings should include:

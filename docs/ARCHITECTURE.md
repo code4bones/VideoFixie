@@ -141,6 +141,9 @@ benchmark runs write `shared-source.log` plus one `variant-XX-*.log` per tile. T
 plain text so a failed backend command can be inspected after the UI run has finished. Variant logs
 write the stage command and live process output while the backend is still running, because long
 AI jobs must be diagnosable before they exit.
+Nominally successful media outputs are validated with an FFmpeg decode-to-null stage before the UI
+marks them ready for playback. This catches corrupt MP4/H.264/AAC files that exist on disk but would
+otherwise make QtMultimedia emit decoder errors directly to the console.
 
 ## Configuration
 Keep two kinds of configuration separate:
@@ -191,6 +194,7 @@ Examples:
 - model files missing;
 - Vulkan device lost;
 - decoder failure;
+- corrupt output media;
 - encoder failure;
 - disk full;
 - cancelled by user.
