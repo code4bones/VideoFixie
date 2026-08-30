@@ -9,6 +9,7 @@ from videofixie.backends.video2x import (
     parse_progress_line,
     parse_version,
     required_model_relative_paths,
+    validate_cli_profile,
     validate_model_files,
     validate_profile,
 )
@@ -117,6 +118,12 @@ class Video2XTest(unittest.TestCase):
                 Path("realcugan/models-pro/up2x-conservative.bin"),
             ),
         )
+
+    def test_validate_cli_profile_rejects_realcugan_negative_noise(self) -> None:
+        profile = dataclasses.replace(bundled_profiles()[0], model="models-pro", noise_level=-1)
+
+        with self.assertRaisesRegex(ValueError, "not supported"):
+            validate_cli_profile(profile)
 
     def test_validate_model_files_rejects_missing_realcugan_variant(self) -> None:
         profile = dataclasses.replace(bundled_profiles()[0], model="models-pro", noise_level=1)

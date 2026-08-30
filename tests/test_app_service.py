@@ -306,7 +306,7 @@ class VideoFixieServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(benchmark.segment, segment)
-        self.assertEqual(len(benchmark.variants), 5)
+        self.assertEqual(len(benchmark.variants), 4)
         self.assertEqual({variant.preview.output_preset.slug for variant in benchmark.variants}, {"preview"})
         self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
         self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))

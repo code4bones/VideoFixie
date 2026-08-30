@@ -96,6 +96,7 @@ class Video2XAdapter:
         device_index: int,
         capabilities: BackendCapabilities | None = None,
     ) -> PlannedCommand:
+        validate_cli_profile(profile)
         if capabilities is not None:
             validate_profile(capabilities, profile)
 
@@ -185,6 +186,8 @@ def required_model_relative_paths(profile: ProcessingProfile) -> tuple[Path, ...
 
 
 def validate_profile(capabilities: BackendCapabilities, profile: ProcessingProfile) -> None:
+    validate_cli_profile(profile)
+
     processor = capabilities.processors.get(profile.processor)
     if processor is None:
         raise ValueError(f"Video2X processor is not available: {profile.processor}")
@@ -197,6 +200,16 @@ def validate_profile(capabilities: BackendCapabilities, profile: ProcessingProfi
 
     if profile.noise_level is not None and not processor.supports_noise_level:
         raise ValueError(f"Processor {profile.processor} does not support noise level")
+
+
+def validate_cli_profile(profile: ProcessingProfile) -> None:
+    if profile.processor != "realcugan" or profile.noise_level is None:
+        return
+    if profile.noise_level in (0, 1, 2, 3):
+        return
+    raise ValueError(
+        f"Video2X RealCUGAN noise level is not supported by the current CLI: {profile.noise_level}"
+    )
 
 
 def _realcugan_noise_suffix(noise_level: int | None) -> str:

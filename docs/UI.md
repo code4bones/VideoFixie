@@ -17,7 +17,7 @@ Suggested layout:
 +-----------------------------------------------------------+
 | Preview range / timeline                                  |
 +-----------------------------------------------------------+
-| Profile: Natural       Scale: 2x     Noise: -1            |
+| Profile: Natural       Scale: 2x     Noise: default       |
 | Processor: RealCUGAN   Model: models-se                   |
 | Output: 1000x720       Codec: H264 CRF 17                 |
 +-----------------------------------------------------------+

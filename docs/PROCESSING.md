@@ -130,7 +130,7 @@ These are product-level starting points, not hard-coded truths.
 Goal: improve scale/details while retaining source character.
 - RealCUGAN
 - x2
-- conservative/no denoise where supported
+- no denoise and supported explicit denoise levels
 - high-quality encode
 - no FPS interpolation
 
@@ -247,7 +247,7 @@ python3 scripts/bootstrap_video2x_runtime.py --force
 
 The bootstrap step extracts the AppImage into ignored local runtime files under `./share/video2x`, creates `./share/video2x/models` as a symlink to the extracted model directory, and writes `./bin/video2x` as a wrapper. This is an explicit setup operation, not GUI startup behavior.
 
-Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`.
+Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`. The current Video2X 6.4 CLI rejects `-n -1`, so conservative model files must not be treated as runnable through Video2X unless a future backend capability proves otherwise.
 
 ## Video2X variant benchmark
 Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment, prepares the shared preview source once, and runs Video2X variants through a bounded queue with the same preview output preset. The UI exposes a small parallelism limit capped at 3 active Video2X variants; use lower values if VRAM pressure appears.
@@ -256,8 +256,8 @@ stage and `variant-XX-*.log` files for each tile. Logs include command, cwd, std
 exit code, elapsed time and final status.
 
 Default live-action matrix:
-- RealCUGAN `models-pro`: default/no denoise, conservative, explicit noise 0 and denoise 3 where installed;
-- RealCUGAN `models-se`: default/no denoise, conservative, explicit noise 0, denoise 1 and denoise 2 where installed;
+- RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
+- RealCUGAN `models-se`: default/no denoise, explicit noise 0, denoise 1 and denoise 2 where installed;
 - RealCUGAN `models-nose`: default/no denoise and explicit noise 0 where installed;
 - RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
 

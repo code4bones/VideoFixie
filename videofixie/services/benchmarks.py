@@ -9,8 +9,8 @@ from videofixie.domain.profiles import ProcessingProfile
 
 
 REALCUGAN_LIVE_ACTION_MATRIX: tuple[tuple[str, tuple[int | None, ...]], ...] = (
-    ("models-pro", (None, -1, 0, 3)),
-    ("models-se", (None, -1, 0, 1, 2)),
+    ("models-pro", (None, 0, 3)),
+    ("models-se", (None, 0, 1, 2)),
     ("models-nose", (None, 0)),
 )
 
@@ -89,8 +89,6 @@ def _realesrgan_plus_profile(scale: int) -> ProcessingProfile:
 def _noise_label(noise_level: int | None) -> str:
     if noise_level is None:
         return "default/no denoise"
-    if noise_level == -1:
-        return "conservative"
     if noise_level == 0:
         return "no denoise"
     return f"denoise {noise_level}"
@@ -99,6 +97,4 @@ def _noise_label(noise_level: int | None) -> str:
 def _slug_noise(noise_level: int | None) -> str:
     if noise_level is None:
         return "default"
-    if noise_level == -1:
-        return "conservative"
     return f"noise{noise_level}"

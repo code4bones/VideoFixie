@@ -58,13 +58,13 @@ class GuiSmokeTest(unittest.TestCase):
 
         app = QApplication.instance() or QApplication([])
         profile = ProcessingProfile(
-            slug="benchmark-realcugan-models-pro-x2-conservative",
-            name="Benchmark RealCUGAN models-pro conservative",
+            slug="benchmark-realcugan-models-pro-x2-noise0",
+            name="Benchmark RealCUGAN models-pro noise0",
             summary="Benchmark profile",
             processor="realcugan",
             model="models-pro",
             scale=2,
-            noise_level=-1,
+            noise_level=0,
         )
         media = MediaInfo(
             path="samples/1.mp4",
@@ -103,7 +103,7 @@ class GuiSmokeTest(unittest.TestCase):
             output_preset=preview_output_preset(),
             variants=(
                 PlannedBenchmarkVariant(
-                    variant=Video2XBenchmarkVariant(profile, "RealCUGAN models-pro conservative", "realcugan / models-pro / x2 / conservative"),
+                    variant=Video2XBenchmarkVariant(profile, "RealCUGAN models-pro noise0", "realcugan / models-pro / x2 / no denoise"),
                     preview=PlannedPreview(media=media, environment=environment, profile=profile, segment=segment, job=job),
                 ),
             ),
