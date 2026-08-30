@@ -34,7 +34,7 @@ from videofixie.domain.release_presets import ReleasePreset
 from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment
-from videofixie.services.history import PreviewResult
+from videofixie.services.history import PreviewResult, SavedCut
 from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
 from videofixie.ui.properties_dialog import PropertiesDialog
 from videofixie.ui.release_preset_wizard import ReleasePresetWizard
@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self.running_preview_segment: TestSegment | None = None
         self.processed_output_path: Path | None = None
         self.processed_segment: TestSegment | None = None
+        self.saved_cuts: tuple[SavedCut, ...] = ()
         self.saved_results: tuple[PreviewResult, ...] = ()
         self.large_split_window: LargeSplitWindow | None = None
         self.properties_dialog: PropertiesDialog | None = None
@@ -222,6 +223,8 @@ class MainWindow(QMainWindow):
         self.play_button = QPushButton("Play")
         self.large_view_button = QPushButton("Large View")
         self.save_cut_button = QPushButton("Save Cut")
+        self.cut_combo = QComboBox()
+        self.load_cut_button = QPushButton("Load Cut")
         self.result_combo = QComboBox()
         self.load_result_button = QPushButton("Load Result")
         self.run_preview_button = QPushButton("Run Preview")
@@ -241,10 +244,13 @@ class MainWindow(QMainWindow):
         segment_controls.addWidget(self.play_button, 0, 6, 2, 1)
         segment_controls.addWidget(self.large_view_button, 0, 7)
         segment_controls.addWidget(self.save_cut_button, 1, 7)
-        segment_controls.addWidget(QLabel("Result"), 2, 0)
-        segment_controls.addWidget(self.result_combo, 2, 1, 1, 5)
-        segment_controls.addWidget(self.load_result_button, 2, 6)
-        segment_controls.addWidget(self.run_preview_button, 0, 8, 2, 1)
+        segment_controls.addWidget(QLabel("Cut"), 2, 0)
+        segment_controls.addWidget(self.cut_combo, 2, 1, 1, 5)
+        segment_controls.addWidget(self.load_cut_button, 2, 6)
+        segment_controls.addWidget(QLabel("Result"), 3, 0)
+        segment_controls.addWidget(self.result_combo, 3, 1, 1, 5)
+        segment_controls.addWidget(self.load_result_button, 3, 6)
+        segment_controls.addWidget(self.run_preview_button, 0, 8, 4, 1)
         timeline_layout.addLayout(segment_controls)
 
         progress_row = QHBoxLayout()
@@ -267,6 +273,7 @@ class MainWindow(QMainWindow):
         self.play_button.clicked.connect(self.toggle_playback)
         self.large_view_button.clicked.connect(self.open_large_view)
         self.save_cut_button.clicked.connect(self.save_current_cut)
+        self.load_cut_button.clicked.connect(self.load_selected_cut)
         self.load_result_button.clicked.connect(self.load_selected_result)
         self.run_preview_button.clicked.connect(self.toggle_preview)
 
@@ -369,6 +376,7 @@ class MainWindow(QMainWindow):
             self.running_preview_segment = None
             self.processed_output_path = None
             self.processed_segment = None
+            self.saved_cuts = ()
             self.saved_results = ()
             self._update_large_view_state()
             self._update_source_info()
@@ -376,9 +384,13 @@ class MainWindow(QMainWindow):
             self.timeline.set_duration(duration)
             self.timeline.clear_display_window()
             end = min(duration, 15.0) if duration else 15.0
-            saved_segment = self._load_saved_segment(path)
-            self._set_segment(saved_segment or TestSegment("Preview", 0.0, end, TestSegmentKind.CUSTOM))
+            saved_cut = self._load_latest_saved_cut(path)
+            if saved_cut is not None:
+                self._apply_saved_cut(saved_cut)
+            else:
+                self._set_segment(TestSegment("Preview", 0.0, end, TestSegmentKind.CUSTOM))
             self._select_first_compatible_profile()
+            self._refresh_saved_cuts()
             self._refresh_saved_results()
         finally:
             self._suppress_planning = False
@@ -482,17 +494,34 @@ class MainWindow(QMainWindow):
             self.preview_status.setText("Open a source video before saving a cut")
             return
         try:
-            self.service.save_source_segment(
+            saved_cut = self.service.save_source_segment(
                 self.source_path,
                 self._current_segment(),
                 self._selected_profile().slug,
                 self._selected_output_preset().slug,
+                backend_slug=self.settings.active_backend_slug,
             )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Could not save cut", str(exc))
             return
-        self.preview_status.setText("Cut saved")
+        self.preview_status.setText(f"Cut saved: {saved_cut.segment.label}")
+        self._refresh_saved_cuts()
+        self._select_saved_cut(saved_cut)
         self._refresh_saved_results()
+
+    def load_selected_cut(self) -> None:
+        cut = self.cut_combo.currentData()
+        if not isinstance(cut, SavedCut):
+            self.preview_status.setText("No saved cut selected")
+            return
+        self._suppress_planning = True
+        try:
+            self._apply_saved_cut(cut)
+            self._select_first_compatible_profile()
+        finally:
+            self._suppress_planning = False
+        self._update_profile_summary()
+        self.preview_status.setText(f"Loaded cut: {cut.segment.label}")
 
     def load_selected_result(self) -> None:
         result = self.result_combo.currentData()
@@ -940,20 +969,39 @@ class MainWindow(QMainWindow):
             return
         self._refresh_saved_results()
 
-    def _load_saved_segment(self, source_path: Path) -> TestSegment | None:
+    def _load_latest_saved_cut(self, source_path: Path) -> SavedCut | None:
         try:
             if hasattr(self.service, "load_source_cut"):
-                saved_cut = self.service.load_source_cut(source_path)
-                if saved_cut is not None:
-                    if saved_cut.profile_slug:
-                        self._select_profile_slug(saved_cut.profile_slug)
-                    if saved_cut.output_preset_slug:
-                        self._select_output_preset_slug(saved_cut.output_preset_slug)
-                    return saved_cut.segment
-            return self.service.load_source_segment(source_path)
+                return self.service.load_source_cut(source_path)
+            saved_segment = self.service.load_source_segment(source_path)
+            if saved_segment is not None:
+                return SavedCut(segment=saved_segment, profile_slug=None, updated_at="")
+            return None
         except Exception as exc:  # noqa: BLE001
             self.command_text.appendPlainText(f"\nHistory load failed: {exc}")
             return None
+
+    def _refresh_saved_cuts(self) -> None:
+        self.cut_combo.clear()
+        if self.source_path is None:
+            self.saved_cuts = ()
+            self.cut_combo.addItem("No source loaded", None)
+            return
+        try:
+            if hasattr(self.service, "saved_cuts_for_source"):
+                self.saved_cuts = self.service.saved_cuts_for_source(self.source_path)
+            else:
+                latest = self._load_latest_saved_cut(self.source_path)
+                self.saved_cuts = (latest,) if latest is not None else ()
+        except Exception as exc:  # noqa: BLE001
+            self.saved_cuts = ()
+            self.cut_combo.addItem(f"Cuts unavailable: {exc}", None)
+            return
+        if not self.saved_cuts:
+            self.cut_combo.addItem("No saved cuts for this source", None)
+            return
+        for cut in self.saved_cuts:
+            self.cut_combo.addItem(_cut_text(cut), cut)
 
     def _refresh_saved_results(self) -> None:
         self.result_combo.clear()
@@ -988,6 +1036,21 @@ class MainWindow(QMainWindow):
         self._update_large_view_state()
         self._seek_processed_from_source_time(segment.start_seconds)
         self.preview_status.setText(f"Loaded saved result: {result.output_path.name}")
+
+    def _apply_saved_cut(self, cut: SavedCut) -> None:
+        if cut.profile_slug:
+            self._select_profile_slug(cut.profile_slug)
+        if cut.output_preset_slug:
+            self._select_output_preset_slug(cut.output_preset_slug)
+        self._set_segment(cut.segment)
+        self._select_saved_cut(cut)
+
+    def _select_saved_cut(self, cut: SavedCut) -> None:
+        for index in range(self.cut_combo.count()):
+            current = self.cut_combo.itemData(index)
+            if isinstance(current, SavedCut) and _same_cut(current, cut):
+                self.cut_combo.setCurrentIndex(index)
+                return
 
     def _select_profile_slug(self, profile_slug: str) -> None:
         index = self.profile_combo.findData(profile_slug)
@@ -1286,4 +1349,25 @@ def _result_text(result: PreviewResult) -> str:
     return (
         f"{result.created_at} | {result.profile_name} | {result.output_preset_name} | "
         f"{result.start_seconds:.3f}-{result.end_seconds:.3f}s | {result.output_path.name}"
+    )
+
+
+def _cut_text(cut: SavedCut) -> str:
+    profile = cut.profile_slug or "profile"
+    output = cut.output_preset_slug or "output"
+    backend = f" | {cut.backend_slug}" if cut.backend_slug else ""
+    return (
+        f"{cut.segment.label} [{cut.segment.kind.value}] "
+        f"{cut.segment.start_seconds:.3f}-{cut.segment.end_seconds:.3f}s | {profile} | {output}{backend}"
+    )
+
+
+def _same_cut(left: SavedCut, right: SavedCut) -> bool:
+    if left.id is not None and right.id is not None:
+        return left.id == right.id
+    return (
+        left.segment.label == right.segment.label
+        and left.source_path == right.source_path
+        and left.segment.start_seconds == right.segment.start_seconds
+        and left.segment.end_seconds == right.segment.end_seconds
     )

@@ -795,8 +795,230 @@ class GuiSmokeTest(unittest.TestCase):
         app.processEvents()
 
         self.assertEqual(window._current_segment(), saved_segment)
+        self.assertEqual(window.cut_combo.count(), 1)
         self.assertEqual(window.result_combo.count(), 1)
         self.assertIs(window.result_combo.currentData(), result)
+
+    def test_saved_cut_combo_loads_multiple_ranges(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.jobs import ProcessingJob, TestSegment, TestSegmentKind
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.services.app import PlannedPreview
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.services.history import SavedCut
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        face = SavedCut(
+            id=1,
+            source_name="clip.mp4",
+            source_path=Path("/media/clip.mp4"),
+            segment=TestSegment("Face", 10.0, 20.0, TestSegmentKind.FACE),
+            profile_slug="natural-realcugan-x2",
+            output_preset_slug="preview",
+            backend_slug="video2x",
+            updated_at="2026-08-30T13:00:00+00:00",
+        )
+        motion = SavedCut(
+            id=2,
+            source_name="clip.mp4",
+            source_path=Path("/media/clip.mp4"),
+            segment=TestSegment("Motion", 30.0, 45.0, TestSegmentKind.MOTION),
+            profile_slug="balanced-realcugan-x2",
+            output_preset_slug="balanced",
+            backend_slug="video2x",
+            updated_at="2026-08-30T13:01:00+00:00",
+        )
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+        media = MediaInfo(
+            path="clip.mp4",
+            format_name="mp4",
+            duration_seconds=120,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+
+        class FakeService:
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def analyze_source(self, path):
+                del path
+                return media
+
+            def load_source_cut(self, path):
+                del path
+                return face
+
+            def saved_cuts_for_source(self, path):
+                del path
+                return (face, motion)
+
+            def preview_results_for_source(self, path):
+                del path
+                return ()
+
+            def plan_preview_with_context(
+                self,
+                source_path,
+                work_dir,
+                profile,
+                segment,
+                media,
+                environment,
+                device_index=None,
+                output_preset=None,
+            ):
+                del work_dir, device_index, output_preset
+                return PlannedPreview(
+                    media=media,
+                    environment=environment,
+                    profile=profile,
+                    segment=segment,
+                    job=ProcessingJob(source_path=source_path, output_path=Path("out.mp4"), profile=profile, stages=()),
+                )
+
+        window = MainWindow(service=FakeService())
+        window.load_source(Path("/media/clip.mp4"))
+        app.processEvents()
+
+        self.assertEqual(window.cut_combo.count(), 2)
+        self.assertEqual(window._current_segment(), face.segment)
+
+        window.cut_combo.setCurrentIndex(1)
+        window.load_selected_cut()
+        app.processEvents()
+
+        self.assertEqual(window._current_segment(), motion.segment)
+        self.assertEqual(window.profile_combo.currentData(), "balanced-realcugan-x2")
+        self.assertEqual(window.output_combo.currentData(), "balanced")
+
+    def test_opening_different_filename_without_cuts_resets_timeline(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.jobs import ProcessingJob, TestSegment, TestSegmentKind
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.services.app import PlannedPreview
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.services.history import SavedCut
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        saved_cut = SavedCut(
+            id=1,
+            source_name="clip-a.mp4",
+            source_path=Path("/media/clip-a.mp4"),
+            segment=TestSegment("Detail", 40.0, 55.0, TestSegmentKind.DETAIL),
+            profile_slug="balanced-realcugan-x2",
+            output_preset_slug="preview",
+            backend_slug="video2x",
+            updated_at="2026-08-30T13:10:00+00:00",
+        )
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+
+        class FakeService:
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def analyze_source(self, path):
+                return MediaInfo(
+                    path=path,
+                    format_name="mp4",
+                    duration_seconds=120,
+                    bit_rate=100,
+                    size_bytes=1000,
+                    video_streams=(),
+                    audio_streams=(),
+                )
+
+            def load_source_cut(self, path):
+                return saved_cut if Path(path).name == "clip-a.mp4" else None
+
+            def saved_cuts_for_source(self, path):
+                return (saved_cut,) if Path(path).name == "clip-a.mp4" else ()
+
+            def preview_results_for_source(self, path):
+                del path
+                return ()
+
+            def plan_preview_with_context(
+                self,
+                source_path,
+                work_dir,
+                profile,
+                segment,
+                media,
+                environment,
+                device_index=None,
+                output_preset=None,
+            ):
+                del work_dir, device_index, output_preset
+                return PlannedPreview(
+                    media=media,
+                    environment=environment,
+                    profile=profile,
+                    segment=segment,
+                    job=ProcessingJob(source_path=source_path, output_path=Path("out.mp4"), profile=profile, stages=()),
+                )
+
+        window = MainWindow(service=FakeService())
+        window.load_source(Path("/media/clip-a.mp4"))
+        app.processEvents()
+        self.assertEqual(window._current_segment(), saved_cut.segment)
+
+        window.load_source(Path("/media/clip-b.mp4"))
+        app.processEvents()
+
+        self.assertEqual(window._current_segment(), TestSegment("Preview", 0.0, 15.0, TestSegmentKind.CUSTOM))
+        self.assertEqual(window.cut_combo.count(), 1)
+        self.assertIsNone(window.cut_combo.currentData())
 
     def test_finished_preview_uses_running_segment_not_latest_replanned_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

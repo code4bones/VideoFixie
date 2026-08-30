@@ -97,14 +97,19 @@ class VideoFixieService:
         segment: TestSegment,
         profile_slug: str | None = None,
         output_preset_slug: str | None = None,
-    ) -> None:
-        self.history.save_segment(source_path, segment, profile_slug, output_preset_slug)
+        backend_slug: str | None = None,
+    ) -> SavedCut:
+        selected_backend_slug = backend_slug or self.load_settings().active_backend_slug
+        return self.history.save_segment(source_path, segment, profile_slug, output_preset_slug, selected_backend_slug)
 
     def load_source_segment(self, source_path: str | Path) -> TestSegment | None:
         return self.history.load_segment(source_path)
 
     def load_source_cut(self, source_path: str | Path) -> SavedCut | None:
         return self.history.load_cut(source_path)
+
+    def saved_cuts_for_source(self, source_path: str | Path) -> tuple[SavedCut, ...]:
+        return self.history.saved_cuts(source_path)
 
     def record_preview_result(
         self,

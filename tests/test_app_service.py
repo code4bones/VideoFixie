@@ -107,7 +107,9 @@ class VideoFixieServiceTest(unittest.TestCase):
     def test_history_facade_saves_segment_and_preview_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             history = VideoFixieHistory(Path(tmp_dir) / "history.sqlite3")
-            service = VideoFixieService(history=history)
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings())
+            service = VideoFixieService(history=history, settings_store=store)
             profile = bundled_profiles()[0]
             output_preset = bundled_output_presets()[1]
             segment = TestSegment("Preview", 2.0, 7.0)
@@ -123,6 +125,8 @@ class VideoFixieServiceTest(unittest.TestCase):
             self.assertIsNotNone(saved_cut)
             self.assertEqual(saved_cut.profile_slug, profile.slug)
             self.assertEqual(saved_cut.output_preset_slug, output_preset.slug)
+            self.assertEqual(saved_cut.backend_slug, "video2x")
+            self.assertEqual(service.saved_cuts_for_source(source), (saved_cut,))
             self.assertEqual(result.output_preset_slug, output_preset.slug)
             self.assertEqual(service.preview_results_for_source(source), (result,))
 

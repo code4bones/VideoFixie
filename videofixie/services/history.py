@@ -18,6 +18,10 @@ class SavedCut:
     profile_slug: str | None
     updated_at: str
     output_preset_slug: str | None = None
+    id: int | None = None
+    source_name: str | None = None
+    source_path: Path | None = None
+    backend_slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,10 +65,42 @@ class VideoFixieHistory:
         segment: TestSegment,
         profile_slug: str | None = None,
         output_preset_slug: str | None = None,
-    ) -> None:
+        backend_slug: str | None = None,
+    ) -> SavedCut:
         source = Path(source_path)
+        source_absolute = str(source.expanduser().resolve(strict=False))
         now = _utc_now()
         with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                insert into source_saved_cuts (
+                    source_name, source_path, label, kind, start_seconds, end_seconds,
+                    profile_slug, output_preset_slug, backend_slug, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(source_path, label) do update set
+                    kind = excluded.kind,
+                    start_seconds = excluded.start_seconds,
+                    end_seconds = excluded.end_seconds,
+                    profile_slug = excluded.profile_slug,
+                    output_preset_slug = excluded.output_preset_slug,
+                    backend_slug = excluded.backend_slug,
+                    updated_at = excluded.updated_at
+                returning id
+                """,
+                (
+                    source.name,
+                    source_absolute,
+                    segment.label,
+                    segment.kind.value,
+                    segment.start_seconds,
+                    segment.end_seconds,
+                    profile_slug,
+                    output_preset_slug,
+                    backend_slug,
+                    now,
+                ),
+            )
+            cut_id = int(cursor.fetchone()["id"])
             connection.execute(
                 """
                 insert into source_segments (
@@ -82,7 +118,7 @@ class VideoFixieHistory:
                 """,
                 (
                     source.name,
-                    str(source.expanduser().resolve(strict=False)),
+                    source_absolute,
                     segment.label,
                     segment.kind.value,
                     segment.start_seconds,
@@ -92,12 +128,47 @@ class VideoFixieHistory:
                     now,
                 ),
             )
+        return SavedCut(
+            id=cut_id,
+            source_name=source.name,
+            source_path=Path(source_absolute),
+            segment=segment,
+            profile_slug=profile_slug,
+            output_preset_slug=output_preset_slug,
+            backend_slug=backend_slug,
+            updated_at=now,
+        )
 
     def load_segment(self, source_path: str | Path) -> TestSegment | None:
         cut = self.load_cut(source_path)
         return cut.segment if cut is not None else None
 
     def load_cut(self, source_path: str | Path) -> SavedCut | None:
+        cuts = self.saved_cuts(source_path, limit=1)
+        if cuts:
+            return cuts[0]
+        return self._load_legacy_cut(source_path)
+
+    def saved_cuts(self, source_path: str | Path, limit: int = 100) -> tuple[SavedCut, ...]:
+        source = Path(source_path)
+        absolute = str(source.expanduser().resolve(strict=False))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                select *
+                from source_saved_cuts
+                where source_path = ? or source_name = ?
+                order by updated_at desc, id desc
+                limit ?
+                """,
+                (absolute, source.name, limit),
+            ).fetchall()
+        if rows:
+            return tuple(_cut_from_row(row) for row in rows)
+        legacy = self._load_legacy_cut(source_path)
+        return (legacy,) if legacy is not None else ()
+
+    def _load_legacy_cut(self, source_path: str | Path) -> SavedCut | None:
         source = Path(source_path)
         absolute = str(source.expanduser().resolve(strict=False))
         with self._connect() as connection:
@@ -242,8 +313,29 @@ class VideoFixieHistory:
                     created_at text not null
                 );
 
+                create table if not exists source_saved_cuts (
+                    id integer primary key autoincrement,
+                    source_name text not null,
+                    source_path text not null,
+                    label text not null,
+                    kind text not null,
+                    start_seconds real not null,
+                    end_seconds real not null,
+                    profile_slug text,
+                    output_preset_slug text,
+                    backend_slug text,
+                    updated_at text not null,
+                    unique(source_path, label)
+                );
+
                 create index if not exists idx_source_segments_name_updated
                     on source_segments(source_name, updated_at desc);
+
+                create index if not exists idx_source_saved_cuts_source_updated
+                    on source_saved_cuts(source_path, updated_at desc);
+
+                create index if not exists idx_source_saved_cuts_name_updated
+                    on source_saved_cuts(source_name, updated_at desc);
 
                 create index if not exists idx_preview_results_source_updated
                     on preview_results(source_path, created_at desc);
@@ -253,6 +345,7 @@ class VideoFixieHistory:
                 """
             )
             _ensure_column(connection, "source_segments", "output_preset_slug", "text")
+            _ensure_column(connection, "source_saved_cuts", "backend_slug", "text")
             _ensure_column(connection, "preview_results", "output_preset_slug", "text not null default 'preview'")
             _ensure_column(connection, "preview_results", "output_preset_name", "text not null default 'Preview'")
 
@@ -277,6 +370,10 @@ def _cut_from_row(row: sqlite3.Row) -> SavedCut:
         profile_slug=row["profile_slug"],
         updated_at=str(row["updated_at"]),
         output_preset_slug=row["output_preset_slug"],
+        id=_optional_row_int(row, "id"),
+        source_name=_optional_row_str(row, "source_name"),
+        source_path=_optional_row_path(row, "source_path"),
+        backend_slug=_optional_row_str(row, "backend_slug"),
     )
 
 
@@ -302,3 +399,20 @@ def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name:
     columns = {str(row["name"]) for row in connection.execute(f"pragma table_info({table_name})")}
     if column_name not in columns:
         connection.execute(f"alter table {table_name} add column {column_name} {definition}")
+
+
+def _optional_row_str(row: sqlite3.Row, column_name: str) -> str | None:
+    if column_name not in row.keys():
+        return None
+    value = row[column_name]
+    return str(value) if value is not None else None
+
+
+def _optional_row_int(row: sqlite3.Row, column_name: str) -> int | None:
+    value = _optional_row_str(row, column_name)
+    return int(value) if value is not None else None
+
+
+def _optional_row_path(row: sqlite3.Row, column_name: str) -> Path | None:
+    value = _optional_row_str(row, column_name)
+    return Path(value) if value is not None else None
