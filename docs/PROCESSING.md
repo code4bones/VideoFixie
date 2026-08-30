@@ -257,7 +257,8 @@ Every Variants run writes diagnostics to `cache/runs/<run-id>/`: `shared-source.
 stage and `variant-XX-*.log` files for each tile. Logs include command, cwd, stdout, stderr,
 exit code, elapsed time and final status.
 Known fatal backend markers such as `vkQueueSubmit failed` and `device lost` must fail the variant
-even when the backend process exits with code 0, because the produced MP4 can be visually corrupt.
+and terminate the running Video2X process promptly, because the produced MP4 can be visually corrupt
+even when the backend would otherwise continue to the encoder stage.
 Each nominally completed Preview/Variant output is then passed through an FFmpeg decode validation
 stage before it is marked Ready or offered to the player. Decoder errors such as invalid H.264 NAL
 units or AAC bitstream errors must fail the tile and remain visible in the run log.
@@ -274,5 +275,12 @@ Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
 - RealCUGAN `models-se`: default/no denoise, explicit noise 0 and denoise 1 where installed;
 - RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
+
+On hybrid Vulkan systems, RealESRGAN x4 can fail even when the selected Video2X device is NVIDIA:
+one diagnostic run printed RADV/AMD context-loss output and repeated `vkQueueSubmit failed -4`
+messages while still ending with Video2X exit code 0. When the selected Video2X device name is
+NVIDIA and the NVIDIA Vulkan ICD file exists, VideoFixie pins Video2X stages with
+`VK_ICD_FILENAMES` pointing at the NVIDIA ICD. This keeps the generated command reproducible while
+preventing accidental RADV/AMD ICD involvement.
 
 Anime-specific Video2X models are intentionally excluded from the default live-action matrix. A failed variant should record its error and allow the remaining variants to continue.

@@ -68,6 +68,7 @@ class ProcessingStage:
     command: PlannedCommand
     generated_files: tuple[GeneratedFile, ...] = ()
     cwd: Path | None = None
+    env: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

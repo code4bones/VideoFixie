@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import queue
 import subprocess
 import threading
@@ -15,6 +16,7 @@ ProgressParser = Callable[[str], JobProgress | None]
 OutputCallback = Callable[["ProcessLogLine"], None]
 ProgressCallback = Callable[[JobProgress], None]
 FinalOutputDetector = Callable[["ProcessLogLine"], str | None]
+FatalOutputDetector = Callable[["ProcessLogLine"], str | None]
 
 
 @dataclass(frozen=True)
@@ -69,12 +71,14 @@ class SubprocessJobRunner:
         progress_parser: ProgressParser | None = None,
         terminate_grace_seconds: float = 2.0,
         inactivity_timeout_seconds: float | None = None,
+        fatal_output_detector: FatalOutputDetector | None = None,
         final_output_detector: FinalOutputDetector | None = None,
         final_output_grace_seconds: float | None = None,
     ) -> None:
         self.progress_parser = progress_parser
         self.terminate_grace_seconds = terminate_grace_seconds
         self.inactivity_timeout_seconds = inactivity_timeout_seconds
+        self.fatal_output_detector = fatal_output_detector
         self.final_output_detector = final_output_detector
         self.final_output_grace_seconds = final_output_grace_seconds
 
@@ -124,6 +128,7 @@ class SubprocessJobRunner:
             on_output=on_output,
             on_progress=on_progress,
             cwd=stage_cwd,
+            env=stage.env,
         )
 
     def run_command(
@@ -133,6 +138,7 @@ class SubprocessJobRunner:
         on_output: OutputCallback | None = None,
         on_progress: ProgressCallback | None = None,
         cwd: str | Path | None = None,
+        env: tuple[tuple[str, str], ...] = (),
     ) -> StageRunResult:
         token = cancellation_token or CancellationToken()
         start_time = time.monotonic()
@@ -148,6 +154,7 @@ class SubprocessJobRunner:
         process = subprocess.Popen(
             command.argv(),
             cwd=str(cwd) if cwd is not None else None,
+            env=_merged_env(env),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -213,6 +220,15 @@ class SubprocessJobRunner:
             if on_output is not None:
                 on_output(item)
 
+            if runtime_error is None and self.fatal_output_detector is not None:
+                fatal_error = self.fatal_output_detector(item)
+                if fatal_error is not None:
+                    runtime_error = fatal_error
+                    if on_output is not None:
+                        on_output(ProcessLogLine(stream="runtime", text=runtime_error))
+                    if process.poll() is None:
+                        _terminate_process(process, self.terminate_grace_seconds)
+
             if self.final_output_detector is not None:
                 marker = self.final_output_detector(item)
                 if marker is not None:
@@ -263,3 +279,11 @@ def _terminate_process(process: subprocess.Popen[str], grace_seconds: float) -> 
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+
+
+def _merged_env(overrides: tuple[tuple[str, str], ...]) -> dict[str, str] | None:
+    if not overrides:
+        return None
+    env = os.environ.copy()
+    env.update(overrides)
+    return env

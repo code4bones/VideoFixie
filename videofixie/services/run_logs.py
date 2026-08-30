@@ -55,6 +55,9 @@ class RunLogFile:
             "command:",
             stage.command.display(),
         ]
+        if stage.env:
+            lines.append("env:")
+            lines.extend(f"  {key}={value}" for key, value in stage.env)
         for generated_file in stage.generated_files:
             description = generated_file.description or "Generated file"
             lines.extend(
@@ -83,6 +86,9 @@ class RunLogFile:
             "command:",
             result.command.display(),
         ]
+        if stage.env:
+            lines.append("env:")
+            lines.extend(f"  {key}={value}" for key, value in stage.env)
         if result.runtime_error:
             lines.append(f"runtime_error: {result.runtime_error}")
         for generated_file in stage.generated_files:

@@ -150,6 +150,10 @@ blocking the queue indefinitely.
 Video2X stages additionally use a shorter post-encoder-summary watchdog: once the final FFmpeg
 encoder summary appears, the process is expected to exit promptly. If it remains alive, the runner
 records a post-encode hang instead of waiting for the full inactivity timeout.
+Stages may declare explicit environment overrides. These are part of the planned job, are written
+to run logs, and are merged over the current process environment only for that subprocess. Video2X
+uses this for NVIDIA Vulkan ICD pinning on hybrid GPU systems when the selected device is NVIDIA and
+the local NVIDIA ICD file is present.
 
 ## Configuration
 Keep two kinds of configuration separate:

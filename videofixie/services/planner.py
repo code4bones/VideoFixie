@@ -95,13 +95,14 @@ def build_test_segment_job(
         )
         validate_model_files(profile, video2x_models_directory)
         video2x_cwd = video2x_models_directory.parent
+        video2x_env = _video2x_stage_env(capabilities, device_index)
         return ProcessingJob(
             source_path=source,
             output_path=preview_output,
             profile=profile,
             stages=(
                 ProcessingStage(label=cut_command.label, command=cut_command),
-                ProcessingStage(label=upscale_command.label, command=upscale_command, cwd=video2x_cwd),
+                ProcessingStage(label=upscale_command.label, command=upscale_command, cwd=video2x_cwd, env=video2x_env),
             ),
             output_preset=selected_output_preset,
         )
@@ -208,7 +209,12 @@ def build_release_job(
             output_path=output,
             profile=profile,
             stages=(
-                ProcessingStage(label=upscale_command.label, command=upscale_command, cwd=video2x_models_directory.parent),
+                ProcessingStage(
+                    label=upscale_command.label,
+                    command=upscale_command,
+                    cwd=video2x_models_directory.parent,
+                    env=_video2x_stage_env(capabilities, device_index),
+                ),
                 ProcessingStage(label=mux_command.label, command=mux_command),
             ),
             output_preset=selected_output_preset,
@@ -277,3 +283,28 @@ def _absolute_path(path: Path) -> Path:
     if path.is_absolute():
         return path
     return Path.cwd() / path
+
+
+def _video2x_stage_env(
+    capabilities: BackendCapabilities | None,
+    device_index: int,
+) -> tuple[tuple[str, str], ...]:
+    selected_device = None
+    if capabilities is not None:
+        selected_device = next((device for device in capabilities.devices if device.index == device_index), None)
+    if selected_device is None or "nvidia" not in selected_device.name.lower():
+        return ()
+
+    nvidia_icd = _first_existing_path(
+        (
+            Path("/usr/share/vulkan/icd.d/nvidia_icd.json"),
+            Path("/etc/vulkan/icd.d/nvidia_icd.json"),
+        )
+    )
+    if nvidia_icd is None:
+        return ()
+    return (("VK_ICD_FILENAMES", str(nvidia_icd)),)
+
+
+def _first_existing_path(paths: tuple[Path, ...]) -> Path | None:
+    return next((path for path in paths if path.exists()), None)

@@ -171,7 +171,7 @@ Initial grid behavior:
 - continue after a single variant fails;
 - exclude Video2X combinations quarantined by observed backend hangs from the default grid;
 - treat known fatal backend output markers as failed even when an output file was created;
-- keep exact commands visible in Properties;
+- keep exact commands and stage-specific environment overrides visible in Properties;
 - allow opening a completed tile in Large View;
 - allow applying a tile as the active Video2X processing profile.
 

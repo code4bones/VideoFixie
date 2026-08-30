@@ -603,7 +603,7 @@ class MainWindow(QMainWindow):
             f"Output: {plan.job.output_path}",
         ]
         for index, stage in enumerate(plan.job.stages, start=1):
-            lines.extend(["", f"Stage {index}: {stage.label}", stage.command.display()])
+            lines.extend(["", f"Stage {index}: {stage.label}", _stage_display(stage)])
             for generated_file in stage.generated_files:
                 description = generated_file.description or "Generated file"
                 lines.extend(["", f"{description}: {generated_file.path}", generated_file.content.rstrip()])
@@ -1270,7 +1270,7 @@ class MainWindow(QMainWindow):
         for index, planned_variant in enumerate(self.benchmark_plan.variants, start=1):
             lines.extend(["", f"Variant {index}: {planned_variant.variant.label}", planned_variant.variant.parameters])
             for stage_index, stage in enumerate(planned_variant.preview.job.stages, start=1):
-                lines.extend([f"  Stage {stage_index}: {stage.label}", f"  {stage.command.display()}"])
+                lines.extend([f"  Stage {stage_index}: {stage.label}", f"  {_stage_display(stage)}"])
         self.command_text.setPlainText("\n".join(lines))
         self._refresh_properties_dialog()
 

@@ -15,7 +15,7 @@ class RunLogTest(unittest.TestCase):
             run_dir = create_run_directory(tmp_dir, "preview")
             log = RunLogFile.create(run_dir, "preview", "Preview run", {"source": "clip.mp4"})
             command = PlannedCommand(sys.executable, ("-c", "print('ok')"), "fake command")
-            stage = ProcessingStage("fake stage", command)
+            stage = ProcessingStage("fake stage", command, env=(("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/nvidia_icd.json"),))
 
             log.append_stage_start(stage)
             log.append_process_line("stdout", "live ok")
@@ -32,5 +32,7 @@ class RunLogTest(unittest.TestCase):
         self.assertIn("stdout: live ok", text)
         self.assertIn("exit_code: 0", text)
         self.assertIn(command.display(), text)
+        self.assertIn("env:", text)
+        self.assertIn("  VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json", text)
         self.assertIn("  ok", text)
         self.assertIn("status: succeeded", text)

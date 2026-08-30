@@ -94,6 +94,29 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertIn("after encoder summary", result.runtime_error or "")
         self.assertTrue(any(line.stream == "runtime" for line in output))
 
+    def test_run_command_terminates_after_fatal_output_marker(self) -> None:
+        command = PlannedCommand(
+            sys.executable,
+            (
+                "-c",
+                "import time; "
+                "print('vkQueueSubmit failed -4', flush=True); "
+                "time.sleep(5)",
+            ),
+            "fatal backend output",
+        )
+        output = []
+
+        result = SubprocessJobRunner(
+            fatal_output_detector=lambda line: "fatal backend marker" if "vkQueueSubmit failed" in line.text else None,
+            inactivity_timeout_seconds=5.0,
+        ).run_command(command, on_output=output.append)
+
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.exit_code, -15)
+        self.assertEqual(result.runtime_error, "fatal backend marker")
+        self.assertTrue(any(line.stream == "runtime" and line.text == "fatal backend marker" for line in output))
+
     def test_stage_runtime_error_marks_result_unsuccessful(self) -> None:
         command = PlannedCommand(sys.executable, ("-c", "pass"), "runtime failed")
         result = StageRunResult("runtime failed", command, exit_code=0, runtime_error="backend failed")
@@ -138,3 +161,16 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertTrue(result.succeeded)
         self.assertEqual(result.stdout, (str(work_dir),))
         self.assertEqual(result.cwd, work_dir)
+
+    def test_run_stage_merges_stage_environment(self) -> None:
+        command = PlannedCommand(
+            sys.executable,
+            ("-c", "import os; print(os.environ['VIDEOFIXIE_TEST_ENV'])"),
+            "print env",
+        )
+        stage = ProcessingStage("print env", command, env=(("VIDEOFIXIE_TEST_ENV", "enabled"),))
+
+        result = SubprocessJobRunner().run_stage(stage)
+
+        self.assertTrue(result.succeeded)
+        self.assertEqual(result.stdout, ("enabled",))

@@ -6,7 +6,7 @@ from shlex import quote
 from PySide6.QtCore import QObject, Signal, Slot
 
 from videofixie.backends.vapoursynth import parse_progress_line as parse_vapoursynth_progress_line
-from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
+from videofixie.backends.video2x import detect_runtime_error, parse_progress_line as parse_video2x_progress_line
 from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
 from videofixie.jobs.output_validation import (
     apply_media_validation_error,
@@ -57,6 +57,7 @@ class PreviewWorker(QObject):
             runner = SubprocessJobRunner(
                 progress_parser=_parse_preview_progress_line,
                 inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+                fatal_output_detector=_detect_video2x_fatal_output,
                 final_output_detector=_detect_video2x_final_encoder_output,
                 final_output_grace_seconds=BACKEND_FINAL_OUTPUT_GRACE_SECONDS,
             )
@@ -131,15 +132,27 @@ def _detect_video2x_final_encoder_output(line: ProcessLogLine) -> str | None:
     return None
 
 
+def _detect_video2x_fatal_output(line: ProcessLogLine) -> str | None:
+    stdout = (line.text,) if line.stream == "stdout" else ()
+    stderr = (line.text,) if line.stream == "stderr" else ()
+    return detect_runtime_error(stdout=stdout, stderr=stderr)
+
+
 def _parse_preview_progress_line(line: str) -> JobProgress | None:
     return parse_video2x_progress_line(line) or parse_vapoursynth_progress_line(line)
 
 
 def _stage_display(stage: ProcessingStage) -> str:
     command = stage.command.display()
+    if stage.env:
+        command = f"{_env_display(stage.env)} {command}"
     if stage.cwd is None:
         return command
     return f"cd {quote(str(stage.cwd))} && {command}"
+
+
+def _env_display(env: tuple[tuple[str, str], ...]) -> str:
+    return " ".join(f"{key}={quote(value)}" for key, value in env)
 
 
 def _job_status(result: JobRunResult) -> str:

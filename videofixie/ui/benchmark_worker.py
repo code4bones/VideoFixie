@@ -19,6 +19,7 @@ from videofixie.services.run_logs import RunLogFile, create_run_directory
 from videofixie.ui.preview_worker import (
     BACKEND_FINAL_OUTPUT_GRACE_SECONDS,
     BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+    _detect_video2x_fatal_output,
     _detect_video2x_final_encoder_output,
     _parse_preview_progress_line,
     _stage_display,
@@ -65,6 +66,7 @@ class BenchmarkWorker(QObject):
             runner = SubprocessJobRunner(
                 progress_parser=_parse_preview_progress_line,
                 inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+                fatal_output_detector=_detect_video2x_fatal_output,
                 final_output_detector=_detect_video2x_final_encoder_output,
                 final_output_grace_seconds=BACKEND_FINAL_OUTPUT_GRACE_SECONDS,
             )
@@ -196,6 +198,7 @@ class BenchmarkWorker(QObject):
         runner = SubprocessJobRunner(
             progress_parser=_parse_preview_progress_line,
             inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+            fatal_output_detector=_detect_video2x_fatal_output,
             final_output_detector=_detect_video2x_final_encoder_output,
             final_output_grace_seconds=BACKEND_FINAL_OUTPUT_GRACE_SECONDS,
         )
