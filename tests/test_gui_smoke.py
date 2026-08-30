@@ -318,6 +318,8 @@ class GuiSmokeTest(unittest.TestCase):
 
         window.processed_output_path = Path("samples/1.mp4")
         window.processed_segment = TestSegment("Preview", 10.0, 20.0, TestSegmentKind.CUSTOM)
+        window.timeline.set_duration(60)
+        window.timeline.set_playhead(14.0, emit=False)
         window.tabs.setCurrentIndex(1)
         app.processEvents()
         self.assertTrue(window.large_view_button.isEnabled())
@@ -330,6 +332,8 @@ class GuiSmokeTest(unittest.TestCase):
         window.open_large_view()
         app.processEvents()
         self.assertIsNotNone(window.large_split_window)
+        self.assertEqual(window.large_split_window._last_source_seek_ms, 14_000)
+        self.assertEqual(window.large_split_window._last_processed_seek_ms, 4_000)
         self.assertIs(window.split_original_player.videoOutput(), window.split_original_widget)
         self.assertIs(window.split_processed_player.videoOutput(), window.split_processed_widget)
         self.assertFalse(window.large_split_window.isFullScreen())

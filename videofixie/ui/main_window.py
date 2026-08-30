@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QThread, QUrl, Qt
+from PySide6.QtCore import QEvent, QThread, QTimer, QUrl, Qt
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -1053,6 +1053,11 @@ class LargeSplitWindow(QWidget):
         self._on_close = on_close
         self.segment = segment
         self._restarting_playback = False
+        self._pending_play = False
+        self._pending_play_retries = 0
+        self._pending_source_time = source_time
+        self._last_source_seek_ms = 0
+        self._last_processed_seek_ms = 0
         self.setWindowTitle("VideoFixie - Split Compare")
         self.resize(1600, 720)
         self.setMinimumSize(900, 360)
@@ -1082,10 +1087,12 @@ class LargeSplitWindow(QWidget):
         self.processed_player.mediaStatusChanged.connect(self._on_media_status_changed)
 
         self.seek_source_time(source_time)
+        QTimer.singleShot(0, self._apply_pending_seek)
+        QTimer.singleShot(150, self._apply_pending_seek)
 
     def play(self) -> None:
-        self.processed_player.play()
-        self.original_player.play()
+        self._pending_play = True
+        self._maybe_start_pending_play()
 
     def pause(self) -> None:
         self.original_player.pause()
@@ -1098,10 +1105,8 @@ class LargeSplitWindow(QWidget):
             self.play()
 
     def seek_source_time(self, source_time: float) -> None:
-        local_ms = self._processed_milliseconds_for_source_time(source_time)
-        mapped_source_time = self.segment.start_seconds + local_ms / 1000
-        self.original_player.setPosition(round(mapped_source_time * 1000))
-        self.processed_player.setPosition(self._playback_milliseconds_for_processed_milliseconds(local_ms))
+        self._pending_source_time = source_time
+        self._apply_pending_seek()
 
     def _on_original_position(self, milliseconds: int) -> None:
         source_time = milliseconds / 1000
@@ -1119,15 +1124,60 @@ class LargeSplitWindow(QWidget):
             return
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self._restart_from_start()
+        elif status in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+            QMediaPlayer.MediaStatus.BufferingMedia,
+        ):
+            self._apply_pending_seek()
+            self._maybe_start_pending_play()
 
     def _restart_from_start(self) -> None:
         self._restarting_playback = True
         try:
             self.seek_source_time(self.segment.start_seconds)
-            self.processed_player.play()
-            self.original_player.play()
+            self._start_players()
         finally:
             self._restarting_playback = False
+
+    def _maybe_start_pending_play(self) -> None:
+        if not self._pending_play:
+            return
+        self._apply_pending_seek()
+        if self._media_ready_to_play():
+            self._pending_play = False
+            self._pending_play_retries = 0
+            self._start_players()
+            return
+        if self._pending_play_retries < 20:
+            self._pending_play_retries += 1
+            QTimer.singleShot(100, self._maybe_start_pending_play)
+
+    def _start_players(self) -> None:
+        self._apply_pending_seek()
+        self.processed_player.play()
+        self.original_player.play()
+
+    def _apply_pending_seek(self) -> None:
+        local_ms = self._processed_milliseconds_for_source_time(self._pending_source_time)
+        self._last_source_seek_ms = self._source_milliseconds_for_source_time(self._pending_source_time)
+        self._last_processed_seek_ms = self._playback_milliseconds_for_processed_milliseconds(local_ms)
+        self.original_player.setPosition(self._last_source_seek_ms)
+        self.processed_player.setPosition(self._last_processed_seek_ms)
+
+    def _media_ready_to_play(self) -> bool:
+        loading = QMediaPlayer.MediaStatus.LoadingMedia
+        no_media = QMediaPlayer.MediaStatus.NoMedia
+        invalid = QMediaPlayer.MediaStatus.InvalidMedia
+        blocked_statuses = {loading, no_media, invalid}
+        return (
+            self.original_player.mediaStatus() not in blocked_statuses
+            and self.processed_player.mediaStatus() not in blocked_statuses
+        )
+
+    def _source_milliseconds_for_source_time(self, source_time: float) -> int:
+        local_ms = self._processed_milliseconds_for_source_time(source_time)
+        return round((self.segment.start_seconds + local_ms / 1000) * 1000)
 
     def _processed_milliseconds_for_source_time(self, source_time: float) -> int:
         local_seconds = source_time - self.segment.start_seconds
@@ -1154,6 +1204,7 @@ class LargeSplitWindow(QWidget):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._pending_play = False
         self.pause()
         self.original_player.setVideoOutput(None)
         self.processed_player.setVideoOutput(None)
