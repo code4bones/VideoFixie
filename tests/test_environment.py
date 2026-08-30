@@ -93,3 +93,29 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(env.vspipe.path, "/custom/vspipe")
         self.assertTrue(env.vspipe.available)
         self.assertEqual(env.vspipe.version, "vspipe R79")
+
+    def test_discover_environment_finds_vspipe_next_to_configured_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            python = root / "bin" / "python"
+            vspipe = root / "bin" / "vspipe"
+            vspipe.parent.mkdir()
+            python.write_text("#!/bin/sh\n", encoding="utf-8")
+            vspipe.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            class Completed:
+                stdout = "vspipe R79\n"
+
+            with (
+                patch("videofixie.services.environment.which", return_value=None),
+                patch("videofixie.services.environment.subprocess.run", return_value=Completed()),
+                patch("videofixie.services.environment.VapourSynthAdapter.version", return_value="VapourSynth R79"),
+            ):
+                env = discover_environment(
+                    ".",
+                    video2x_path=None,
+                    vapoursynth_python_path=python,
+                )
+
+        self.assertEqual(env.vspipe.path, str(vspipe))
+        self.assertTrue(env.vspipe.available)

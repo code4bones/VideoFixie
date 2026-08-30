@@ -61,7 +61,8 @@ def discover_environment(
     selected_video2x_path = str(video2x_path) if video2x_path else find_video2x_executable(root, video2x_candidates)
     video2x_status = _probe_video2x(selected_video2x_path)
     vapoursynth_status = _probe_vapoursynth_python(vapoursynth_python_path)
-    vspipe_status = _probe_tool("vspipe", ("--version",), configured_path=vspipe_path)
+    selected_vspipe_path = _default_vspipe_path(vspipe_path, vapoursynth_python_path)
+    vspipe_status = _probe_tool("vspipe", ("--version",), configured_path=selected_vspipe_path)
 
     capabilities: BackendCapabilities | None = None
     preferred_gpu: GpuDevice | None = None
@@ -168,6 +169,15 @@ def _probe_vapoursynth_python(python_path: str | Path | None = None) -> ToolStat
         return ToolStatus(name="vapoursynth", path=path, available=False, error=_subprocess_error_text(exc))
 
     return ToolStatus(name="vapoursynth", path=path, available=True, version=version)
+
+
+def _default_vspipe_path(vspipe_path: str | Path | None, python_path: str | Path | None) -> str | Path | None:
+    if vspipe_path is not None:
+        return vspipe_path
+    candidate = Path(python_path or sys.executable).parent / "vspipe"
+    if candidate.exists():
+        return candidate
+    return None
 
 
 def _subprocess_error_text(error: BaseException) -> str:
