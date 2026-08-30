@@ -148,7 +148,8 @@ The Variants tab benchmarks several practical Video2X live-action configurations
 Initial grid behavior:
 - plan all variants from the same source segment and output preset;
 - run variants sequentially by default to avoid VRAM contention;
-- show an explicit queued/running/ready/failed state and keep only one Video2X variant active at a time;
+- show an explicit queued/running/ready/failed state and keep a bounded active Video2X set;
+- expose a small parallelism limit for advanced testing, capped at 3 active Video2X variants;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;
 - keep exact commands visible in Properties;

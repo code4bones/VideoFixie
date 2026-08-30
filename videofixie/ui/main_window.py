@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QDoubleSpinBox,
+    QSpinBox,
     QStyle,
     QTabWidget,
     QToolBar,
@@ -181,9 +182,15 @@ class MainWindow(QMainWindow):
         variants_toolbar = QHBoxLayout()
         self.run_variants_button = QPushButton("Run Variants")
         self.apply_variant_button = QPushButton("Apply Selected")
+        self.variant_parallel_spin = QSpinBox()
+        self.variant_parallel_spin.setRange(1, 3)
+        self.variant_parallel_spin.setValue(3)
+        self.variant_parallel_spin.setToolTip("Maximum active Video2X variants")
         self.variant_status_label = QLabel("No variants planned")
         variants_toolbar.addWidget(self.run_variants_button)
         variants_toolbar.addWidget(self.apply_variant_button)
+        variants_toolbar.addWidget(QLabel("Parallel"))
+        variants_toolbar.addWidget(self.variant_parallel_spin)
         variants_toolbar.addWidget(self.variant_status_label, 1)
         variants_layout.addLayout(variants_toolbar)
         self.variant_scroll = QScrollArea()
@@ -749,7 +756,11 @@ class MainWindow(QMainWindow):
             return
 
         self.benchmark_thread = QThread(self)
-        self.benchmark_worker = BenchmarkWorker(self.benchmark_plan, indices)
+        self.benchmark_worker = BenchmarkWorker(
+            self.benchmark_plan,
+            indices,
+            max_parallel_jobs=self.variant_parallel_spin.value(),
+        )
         self.benchmark_worker.moveToThread(self.benchmark_thread)
         self.benchmark_thread.started.connect(self.benchmark_worker.run)
         self.benchmark_worker.variantStarted.connect(self._on_benchmark_variant_started)
@@ -853,6 +864,7 @@ class MainWindow(QMainWindow):
     def _set_benchmark_running(self, running: bool) -> None:
         self.run_variants_button.setText("Cancel Variants" if running else "Run Variants")
         self.apply_variant_button.setEnabled(not running)
+        self.variant_parallel_spin.setEnabled(not running)
         for tile in self.variant_tiles:
             tile.set_actions_enabled(not running)
 

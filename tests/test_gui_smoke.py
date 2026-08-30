@@ -24,6 +24,7 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertGreaterEqual(window.output_combo.count(), 5)
         self.assertEqual(window.tabs.tabText(3), "Variants")
         self.assertEqual(window.run_variants_button.text(), "Run Variants")
+        self.assertEqual(window.variant_parallel_spin.value(), 3)
         self.assertFalse(hasattr(window, "env_box"))
         self.assertFalse(hasattr(window, "source_box"))
         self.assertFalse(hasattr(window, "profile_box"))

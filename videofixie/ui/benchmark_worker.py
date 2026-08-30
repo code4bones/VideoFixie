@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,10 +28,16 @@ class BenchmarkWorker(QObject):
     finished = Signal()
     failed = Signal(str)
 
-    def __init__(self, benchmark: PlannedVideo2XBenchmark, variant_indices: tuple[int, ...] | None = None) -> None:
+    def __init__(
+        self,
+        benchmark: PlannedVideo2XBenchmark,
+        variant_indices: tuple[int, ...] | None = None,
+        max_parallel_jobs: int = 1,
+    ) -> None:
         super().__init__()
         self.benchmark = benchmark
         self.variant_indices = tuple(range(len(benchmark.variants))) if variant_indices is None else variant_indices
+        self.max_parallel_jobs = min(max(1, max_parallel_jobs), 3)
         self.cancellation_token = CancellationToken()
 
     @Slot()
@@ -64,45 +71,35 @@ class BenchmarkWorker(QObject):
                     self.finished.emit()
                     return
 
-            for index in self.variant_indices:
-                if self.cancellation_token.is_cancelled:
-                    break
-                planned_variant = self.benchmark.variants[index]
-                self.variantStarted.emit(index, planned_variant.variant.label)
-                job = planned_variant.preview.job
-                job.output_path.parent.mkdir(parents=True, exist_ok=True)
-                stage_results = []
-                variant_error: str | None = None
-                stages = job.stages[1:] if len(self.variant_indices) > 1 else job.stages
-                for stage in stages:
+            skip_shared_cut = len(self.variant_indices) > 1
+            if self.max_parallel_jobs <= 1 or len(self.variant_indices) <= 1:
+                for index in self.variant_indices:
                     if self.cancellation_token.is_cancelled:
                         break
-                    self.stageStarted.emit(index, stage.label, _stage_display(stage))
-                    result = runner.run_stage(
-                        stage,
-                        cancellation_token=self.cancellation_token,
-                        on_output=lambda line, variant_index=index: self._handle_output(variant_index, line),
-                        on_progress=lambda progress, variant_index=index: self.progressChanged.emit(variant_index, progress),
-                    )
-                    stage_results.append(result)
-                    if not result.succeeded:
-                        exit_code = result.exit_code
-                        variant_error = "cancelled" if result.cancelled else f"{stage.label} failed with exit {exit_code}"
-                        break
-                run_result = JobRunResult(
-                    stages=tuple(stage_results),
-                    cancelled=self.cancellation_token.is_cancelled,
-                )
-                output_path = successful_output_path(run_result, job.output_path)
-                self.variantFinished.emit(
-                    BenchmarkVariantRun(
-                        index=index,
-                        output_path=output_path,
-                        result=run_result,
-                        error=variant_error,
-                    )
-                )
-                completed_indices.add(index)
+                    run = self._run_variant(index, skip_shared_cut)
+                    self.variantFinished.emit(run)
+                    completed_indices.add(index)
+            else:
+                executor = ThreadPoolExecutor(max_workers=min(self.max_parallel_jobs, len(self.variant_indices)))
+                futures = {
+                    executor.submit(self._run_variant, index, skip_shared_cut): index
+                    for index in self.variant_indices
+                }
+                try:
+                    for future in as_completed(futures):
+                        index = futures[future]
+                        if future.cancelled():
+                            continue
+                        run = future.result()
+                        self.variantFinished.emit(run)
+                        completed_indices.add(index)
+                        if self.cancellation_token.is_cancelled:
+                            for pending in futures:
+                                if not pending.done():
+                                    pending.cancel()
+                            break
+                finally:
+                    executor.shutdown(wait=True, cancel_futures=True)
             if self.cancellation_token.is_cancelled:
                 run_result = JobRunResult(cancelled=True)
                 for index in self.variant_indices:
@@ -122,6 +119,49 @@ class BenchmarkWorker(QObject):
     @Slot()
     def cancel(self) -> None:
         self.cancellation_token.cancel()
+
+    def _run_variant(self, index: int, skip_shared_cut: bool) -> BenchmarkVariantRun:
+        if self.cancellation_token.is_cancelled:
+            return BenchmarkVariantRun(
+                index=index,
+                output_path=None,
+                result=JobRunResult(cancelled=True),
+                error="cancelled",
+            )
+
+        planned_variant = self.benchmark.variants[index]
+        self.variantStarted.emit(index, planned_variant.variant.label)
+        job = planned_variant.preview.job
+        job.output_path.parent.mkdir(parents=True, exist_ok=True)
+        runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+        stage_results = []
+        variant_error: str | None = None
+        stages = job.stages[1:] if skip_shared_cut else job.stages
+        for stage in stages:
+            if self.cancellation_token.is_cancelled:
+                break
+            self.stageStarted.emit(index, stage.label, _stage_display(stage))
+            result = runner.run_stage(
+                stage,
+                cancellation_token=self.cancellation_token,
+                on_output=lambda line, variant_index=index: self._handle_output(variant_index, line),
+                on_progress=lambda progress, variant_index=index: self.progressChanged.emit(variant_index, progress),
+            )
+            stage_results.append(result)
+            if not result.succeeded:
+                exit_code = result.exit_code
+                variant_error = "cancelled" if result.cancelled else f"{stage.label} failed with exit {exit_code}"
+                break
+        run_result = JobRunResult(
+            stages=tuple(stage_results),
+            cancelled=self.cancellation_token.is_cancelled,
+        )
+        return BenchmarkVariantRun(
+            index=index,
+            output_path=successful_output_path(run_result, job.output_path),
+            result=run_result,
+            error=variant_error,
+        )
 
     def _handle_output(self, variant_index: int, line: ProcessLogLine) -> None:
         self.outputReceived.emit(variant_index, f"{line.stream}: {line.text}")

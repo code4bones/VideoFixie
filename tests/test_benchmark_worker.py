@@ -1,5 +1,7 @@
 import importlib.util
+import threading
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -59,8 +61,56 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertIsNone(finished[0].output_path)
         self.assertEqual(finished[1].output_path, output_2)
 
+    def test_worker_respects_parallel_variant_limit(self) -> None:
+        from PySide6.QtWidgets import QApplication
 
-def _benchmark(output_paths: tuple[Path, Path]) -> PlannedVideo2XBenchmark:
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_paths = (
+                Path(tmp_dir) / "one.mp4",
+                Path(tmp_dir) / "two.mp4",
+                Path(tmp_dir) / "three.mp4",
+            )
+            benchmark = _benchmark(output_paths)
+            finished = []
+            lock = threading.Lock()
+            active = 0
+            max_active = 0
+            outputs_by_label = {
+                "variant one": output_paths[0],
+                "variant two": output_paths[1],
+                "variant three": output_paths[2],
+            }
+
+            def fake_run_stage(stage, **kwargs):
+                nonlocal active, max_active
+                if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                with lock:
+                    active += 1
+                    max_active = max(max_active, active)
+                try:
+                    time.sleep(0.05)
+                    outputs_by_label[stage.command.label].write_bytes(b"ok")
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                finally:
+                    with lock:
+                        active -= 1
+
+            worker = BenchmarkWorker(benchmark, max_parallel_jobs=2)
+            worker.variantFinished.connect(finished.append)
+            with patch("videofixie.ui.benchmark_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+        self.assertEqual(len(finished), 3)
+        self.assertEqual(max_active, 2)
+        self.assertTrue(all(run.output_path is not None for run in finished))
+
+
+def _benchmark(output_paths: tuple[Path, ...]) -> PlannedVideo2XBenchmark:
     media = MediaInfo(
         path="samples/1.mp4",
         format_name="mp4",
@@ -79,6 +129,7 @@ def _benchmark(output_paths: tuple[Path, Path]) -> PlannedVideo2XBenchmark:
     )
     segment = TestSegment("Preview", 1, 2)
     variants = []
+    labels = ("one", "two", "three", "four")
     for index, output_path in enumerate(output_paths, start=1):
         profile = ProcessingProfile(
             slug=f"variant-{index}",
@@ -89,7 +140,7 @@ def _benchmark(output_paths: tuple[Path, Path]) -> PlannedVideo2XBenchmark:
             scale=2,
             noise_level=None,
         )
-        command = PlannedCommand("python", ("-c", "pass"), f"variant {'one' if index == 1 else 'two'}")
+        command = PlannedCommand("python", ("-c", "pass"), f"variant {labels[index - 1]}")
         shared_cut = PlannedCommand("python", ("-c", "pass"), "shared cut")
         job = ProcessingJob(
             source_path=Path("samples/1.mp4"),
