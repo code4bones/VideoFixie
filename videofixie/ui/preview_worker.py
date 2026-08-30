@@ -18,7 +18,7 @@ from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLi
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.run_logs import RunLogFile, create_run_directory
 
-BACKEND_INACTIVITY_TIMEOUT_SECONDS = 90.0
+BACKEND_INACTIVITY_TIMEOUT_SECONDS = 600.0
 BACKEND_FINAL_OUTPUT_GRACE_SECONDS = 10.0
 
 

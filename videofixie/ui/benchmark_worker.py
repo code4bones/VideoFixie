@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from videofixie.backends.video2x import VIDEO2X_PROCESSING_LABEL
 from videofixie.jobs.output_validation import (
     apply_media_validation_error,
     build_media_validation_stage,
@@ -204,6 +205,7 @@ class BenchmarkWorker(QObject):
         )
         stage_results = []
         variant_error: str | None = None
+        post_encoder_warning: str | None = None
         stages = job.stages[1:] if skip_shared_cut else job.stages
         for stage in stages:
             if self.cancellation_token.is_cancelled:
@@ -222,19 +224,24 @@ class BenchmarkWorker(QObject):
                 variant_log.append_stage_result(stage, result, include_output=False)
             stage_results.append(result)
             if not result.succeeded:
-                exit_code = result.exit_code
-                if result.cancelled:
-                    variant_error = "cancelled"
-                elif result.runtime_error:
-                    variant_error = result.runtime_error
+                if _can_validate_after_video2x_post_encoder_timeout(stage, result, job.output_path):
+                    post_encoder_warning = result.runtime_error
                 else:
-                    variant_error = f"{stage.label} failed with exit {exit_code}"
+                    exit_code = result.exit_code
+                    if result.cancelled:
+                        variant_error = "cancelled"
+                    elif result.runtime_error:
+                        variant_error = result.runtime_error
+                    else:
+                        variant_error = f"{stage.label} failed with exit {exit_code}"
                 break
         run_result = JobRunResult(
             stages=tuple(stage_results),
             cancelled=self.cancellation_token.is_cancelled,
         )
-        if run_result.succeeded:
+        validated_output_path: Path | None = None
+        should_validate_output = run_result.succeeded or post_encoder_warning is not None
+        if should_validate_output:
             validation_stage = build_media_validation_stage(
                 job.output_path,
                 ffmpeg_path=media_validation_ffmpeg_path(job),
@@ -261,11 +268,15 @@ class BenchmarkWorker(QObject):
             )
             if not validation_result.succeeded:
                 variant_error = validation_result.runtime_error or f"{validation_stage.label} failed with exit {validation_result.exit_code}"
+            elif job.output_path.exists():
+                validated_output_path = job.output_path
         if variant_log is not None:
-            variant_log.append_status(_job_status(run_result), variant_error)
+            log_status = "succeeded" if validated_output_path is not None and variant_error is None else _job_status(run_result)
+            log_details = post_encoder_warning if log_status == "succeeded" else variant_error
+            variant_log.append_status(log_status, log_details)
         return BenchmarkVariantRun(
             index=index,
-            output_path=successful_output_path(run_result, job.output_path),
+            output_path=validated_output_path or successful_output_path(run_result, job.output_path),
             result=run_result,
             error=variant_error,
             log_path=variant_log.path if variant_log is not None else None,
@@ -303,3 +314,17 @@ def _job_status(result: JobRunResult) -> str:
     if result.cancelled:
         return "cancelled"
     return "failed"
+
+
+def _can_validate_after_video2x_post_encoder_timeout(
+    stage: ProcessingStage,
+    result: StageRunResult,
+    output_path: Path,
+) -> bool:
+    if stage.command.label != VIDEO2X_PROCESSING_LABEL:
+        return False
+    if result.cancelled or result.runtime_error is None:
+        return False
+    if "after Video2X FFmpeg encoder summary" not in result.runtime_error:
+        return False
+    return output_path.exists()

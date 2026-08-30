@@ -128,6 +128,11 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(BenchmarkWorker(benchmark, max_parallel_jobs=99).max_parallel_jobs, 6)
         self.assertEqual(BenchmarkWorker(benchmark, max_parallel_jobs=0).max_parallel_jobs, 1)
 
+    def test_backend_inactivity_timeout_allows_slow_first_frame(self) -> None:
+        from videofixie.ui.preview_worker import BACKEND_INACTIVITY_TIMEOUT_SECONDS
+
+        self.assertGreater(BACKEND_INACTIVITY_TIMEOUT_SECONDS, 90.0)
+
     def test_worker_rejects_video2x_vulkan_failure_even_when_output_exists(self) -> None:
         from PySide6.QtWidgets import QApplication
 
@@ -207,6 +212,63 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(len(finished), 1)
         self.assertIsNone(finished[0].output_path)
         self.assertIn("Output media validation failed", finished[0].error or "")
+
+    def test_worker_accepts_post_encoder_timeout_when_output_validates(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "ready.mp4"
+            logs_root = Path(tmp_dir) / "runs"
+            benchmark = _benchmark((output_path,))
+            planned_variant = benchmark.variants[0]
+            original_job = planned_variant.preview.job
+            video2x_command = PlannedCommand("video2x", ("--fake",), VIDEO2X_PROCESSING_LABEL)
+            job = dataclasses.replace(
+                original_job,
+                stages=(
+                    original_job.stages[0],
+                    ProcessingStage(VIDEO2X_PROCESSING_LABEL, video2x_command),
+                ),
+            )
+            preview = dataclasses.replace(planned_variant.preview, job=job)
+            benchmark = dataclasses.replace(
+                benchmark,
+                variants=(dataclasses.replace(planned_variant, preview=preview),),
+            )
+            finished = []
+            calls = []
+            warning = "Process stayed alive for 10s after Video2X FFmpeg encoder summary"
+
+            def fake_run_stage(stage, **kwargs):
+                del kwargs
+                calls.append(stage.command.label)
+                if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                if stage.command.label == VIDEO2X_PROCESSING_LABEL:
+                    output_path.write_bytes(b"complete media placeholder")
+                    return StageRunResult(stage.label, stage.command, exit_code=-15, runtime_error=warning)
+                if stage.command.label == MEDIA_VALIDATION_LABEL:
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                raise AssertionError(stage.command.label)
+
+            worker = BenchmarkWorker(benchmark, run_logs_root=logs_root)
+            worker.variantFinished.connect(finished.append)
+            with patch("videofixie.ui.benchmark_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+            variant_log = next(logs_root.glob("variants-*/variant-01-*.log"))
+            log_text = variant_log.read_text(encoding="utf-8")
+
+        self.assertEqual(calls, ["shared cut", VIDEO2X_PROCESSING_LABEL, MEDIA_VALIDATION_LABEL])
+        self.assertEqual(len(finished), 1)
+        self.assertEqual(finished[0].output_path, output_path)
+        self.assertIsNone(finished[0].error)
+        self.assertIn("status: succeeded", log_text)
+        self.assertIn(f"details: {warning}", log_text)
 
     def test_worker_writes_run_logs_for_shared_cut_and_variants(self) -> None:
         from PySide6.QtWidgets import QApplication

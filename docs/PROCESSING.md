@@ -261,15 +261,19 @@ and terminate the running Video2X process promptly, because the produced MP4 can
 even when the backend would otherwise continue to the encoder stage.
 Each nominally completed Preview/Variant output is then passed through an FFmpeg decode validation
 stage before it is marked Ready or offered to the player. Decoder errors such as invalid H.264 NAL
-units or AAC bitstream errors must fail the tile and remain visible in the run log.
-If Video2X writes final encoder statistics and then remains alive without output, the runner should
-terminate the silent stage through the inactivity watchdog and keep the tile failed for inspection.
+units or AAC bitstream errors must fail the tile and remain visible in the run log. If Video2X writes
+final encoder statistics and then remains alive without output, Variants should terminate the silent
+process and validate the output file when it exists; a passing validation may mark the tile Ready,
+with the post-encode watchdog warning retained in the run log.
 When the final Video2X FFmpeg encoder summary is observed, use a shorter post-encode grace timeout
 than the general inactivity watchdog. In observed Video2X 6.4 runs, RealCUGAN `models-se` x2
 `denoise 2` and `models-nose` x2 `no denoise` reached the final libx264 `kb/s` summary and then
 stayed alive until terminated. The GUI console also showed CUDA/NVDEC setup warnings about too many
 decode surfaces under this run, so these combinations are quarantined from the default benchmark
 matrix until a backend capability proves them stable.
+The generic no-output watchdog must be long enough for heavy first-frame startup. RealESRGAN x4 can
+spend more than 90 seconds at `frame=0` after selecting the NVIDIA device, especially on short high
+scale previews, without emitting fatal Vulkan output.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
