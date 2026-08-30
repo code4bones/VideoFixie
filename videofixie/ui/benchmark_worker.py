@@ -30,13 +30,40 @@ class BenchmarkWorker(QObject):
     def __init__(self, benchmark: PlannedVideo2XBenchmark, variant_indices: tuple[int, ...] | None = None) -> None:
         super().__init__()
         self.benchmark = benchmark
-        self.variant_indices = variant_indices or tuple(range(len(benchmark.variants)))
+        self.variant_indices = tuple(range(len(benchmark.variants))) if variant_indices is None else variant_indices
         self.cancellation_token = CancellationToken()
 
     @Slot()
     def run(self) -> None:
         try:
             runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+            completed_indices: set[int] = set()
+            if len(self.variant_indices) > 1 and self.variant_indices:
+                first_variant = self.benchmark.variants[self.variant_indices[0]]
+                shared_stage = first_variant.preview.job.stages[0]
+                self.stageStarted.emit(-1, "Prepare benchmark source", _stage_display(shared_stage))
+                result = runner.run_stage(
+                    shared_stage,
+                    cancellation_token=self.cancellation_token,
+                    on_output=lambda line: self._handle_output(-1, line),
+                    on_progress=lambda progress: self.progressChanged.emit(-1, progress),
+                )
+                if not result.succeeded:
+                    run_result = JobRunResult(stages=(result,), cancelled=self.cancellation_token.is_cancelled)
+                    error = "cancelled" if result.cancelled else f"{shared_stage.label} failed with exit {result.exit_code}"
+                    for index in self.variant_indices:
+                        self.variantFinished.emit(
+                            BenchmarkVariantRun(
+                                index=index,
+                                output_path=None,
+                                result=run_result,
+                                error=error,
+                            )
+                        )
+                        completed_indices.add(index)
+                    self.finished.emit()
+                    return
+
             for index in self.variant_indices:
                 if self.cancellation_token.is_cancelled:
                     break
@@ -46,7 +73,8 @@ class BenchmarkWorker(QObject):
                 job.output_path.parent.mkdir(parents=True, exist_ok=True)
                 stage_results = []
                 variant_error: str | None = None
-                for stage in job.stages:
+                stages = job.stages[1:] if len(self.variant_indices) > 1 else job.stages
+                for stage in stages:
                     if self.cancellation_token.is_cancelled:
                         break
                     self.stageStarted.emit(index, stage.label, _stage_display(stage))
@@ -74,6 +102,19 @@ class BenchmarkWorker(QObject):
                         error=variant_error,
                     )
                 )
+                completed_indices.add(index)
+            if self.cancellation_token.is_cancelled:
+                run_result = JobRunResult(cancelled=True)
+                for index in self.variant_indices:
+                    if index not in completed_indices:
+                        self.variantFinished.emit(
+                            BenchmarkVariantRun(
+                                index=index,
+                                output_path=None,
+                                result=run_result,
+                                error="cancelled",
+                            )
+                        )
             self.finished.emit()
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))

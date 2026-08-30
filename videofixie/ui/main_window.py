@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QFrame,
     QScrollArea,
+    QSizePolicy,
     QDoubleSpinBox,
     QStyle,
     QTabWidget,
@@ -187,7 +188,9 @@ class MainWindow(QMainWindow):
         variants_layout.addLayout(variants_toolbar)
         self.variant_scroll = QScrollArea()
         self.variant_scroll.setWidgetResizable(True)
+        self.variant_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.variant_grid_widget = QWidget()
+        self.variant_grid_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.variant_grid = QGridLayout(self.variant_grid_widget)
         self.variant_grid.setContentsMargins(0, 0, 0, 0)
         self.variant_grid.setSpacing(8)
@@ -670,6 +673,9 @@ class MainWindow(QMainWindow):
             return
         if self.preview_thread is not None:
             return
+        if self.benchmark_thread is not None:
+            self.preview_status.setText("Variant benchmark is running")
+            return
 
         job = self.current_job
         segment = self.current_plan_segment or self._current_segment()
@@ -720,6 +726,9 @@ class MainWindow(QMainWindow):
             return
         if self.benchmark_thread is not None:
             return
+        if self.preview_thread is not None:
+            self.variant_status_label.setText("Preview is running")
+            return
         try:
             if self.benchmark_plan is None or indices is None:
                 self.benchmark_plan = self.service.plan_video2x_benchmark_with_context(
@@ -755,6 +764,7 @@ class MainWindow(QMainWindow):
         self.benchmark_worker.finished.connect(self.benchmark_worker.deleteLater)
         self.benchmark_worker.failed.connect(self.benchmark_worker.deleteLater)
         self.benchmark_thread.finished.connect(self._cleanup_benchmark_thread)
+        self._mark_benchmark_queue(indices)
         self._set_benchmark_running(True)
         self.variant_status_label.setText("Variant benchmark running")
         self.tabs.setCurrentWidget(self.variants_tab)
@@ -785,17 +795,30 @@ class MainWindow(QMainWindow):
         self.variant_status_label.setText(f"Running: {label}")
 
     def _on_benchmark_stage_started(self, index: int, label: str, command: str) -> None:
+        if index < 0:
+            self.variant_status_label.setText(label)
+            self.command_text.appendPlainText(f"\n[Benchmark queue] Running: {label}\n{command}")
+            self._refresh_properties_dialog()
+            return
         tile = self._variant_tile(index)
         tile.set_stage(label)
         self.command_text.appendPlainText(f"\n[{tile.title_text}] Running: {label}\n{command}")
         self._refresh_properties_dialog()
 
     def _on_benchmark_output(self, index: int, line: str) -> None:
+        if index < 0:
+            self.command_text.appendPlainText(f"[Benchmark queue] {line}")
+            self._refresh_properties_dialog()
+            return
         tile = self._variant_tile(index)
         self.command_text.appendPlainText(f"[{tile.title_text}] {line}")
         self._refresh_properties_dialog()
 
     def _on_benchmark_progress(self, index: int, progress) -> None:
+        if index < 0:
+            if progress.percent is not None:
+                self.variant_status_label.setText(f"Preparing benchmark source: {progress.percent:.1f}%")
+            return
         self._variant_tile(index).set_progress(progress)
 
     def _on_benchmark_variant_finished(self, run: BenchmarkVariantRun) -> None:
@@ -830,6 +853,13 @@ class MainWindow(QMainWindow):
     def _set_benchmark_running(self, running: bool) -> None:
         self.run_variants_button.setText("Cancel Variants" if running else "Run Variants")
         self.apply_variant_button.setEnabled(not running)
+        for tile in self.variant_tiles:
+            tile.set_actions_enabled(not running)
+
+    def _mark_benchmark_queue(self, indices: tuple[int, ...] | None) -> None:
+        selected_indices = indices or tuple(range(len(self.variant_tiles)))
+        for position, index in enumerate(selected_indices, start=1):
+            self._variant_tile(index).set_queued(position)
 
     def _build_variant_tiles(self) -> None:
         if self.benchmark_plan is None:
@@ -863,9 +893,12 @@ class MainWindow(QMainWindow):
             return
         while self.variant_grid.count():
             self.variant_grid.takeAt(0)
-        columns = max(1, min(3, self.variant_scroll.viewport().width() // 330))
+        viewport_width = max(240, self.variant_scroll.viewport().width() - 18)
+        columns = max(1, min(3, viewport_width // 280))
         for index, tile in enumerate(self.variant_tiles):
             self.variant_grid.addWidget(tile, index // columns, index % columns)
+        for column in range(columns):
+            self.variant_grid.setColumnStretch(column, 1)
 
     def _write_benchmark_plan_log(self) -> None:
         if self.benchmark_plan is None:
@@ -1509,7 +1542,8 @@ class VariantTile(QFrame):
         self.output_path: Path | None = None
         self.is_selected = False
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(220)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(
             """
             VariantTile {
@@ -1524,20 +1558,19 @@ class VariantTile(QFrame):
         layout.setSpacing(6)
         self.title_label = QLabel(title)
         self.title_label.setStyleSheet("font-weight: 600;")
+        self.title_label.setWordWrap(True)
         self.params_label = QLabel(parameters)
         self.params_label.setWordWrap(True)
         self.status_label = QLabel("Ready")
+        self.status_label.setWordWrap(True)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
-        self.video_widget = QVideoWidget()
-        self.video_widget.setMinimumHeight(150)
-        self.video_widget.setStyleSheet("background: #050609;")
-        self.player = QMediaPlayer(self)
-        self.audio = QAudioOutput(self)
-        self.audio.setMuted(True)
-        self.player.setAudioOutput(self.audio)
-        self.player.setVideoOutput(self.video_widget)
+        self.result_label = QLabel("Queued output will open in Large View")
+        self.result_label.setWordWrap(True)
+        self.result_label.setMinimumHeight(54)
+        self.result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.result_label.setStyleSheet("background: #11151d; color: #aeb8c8; border: 1px solid #303846; border-radius: 4px;")
         actions = QHBoxLayout()
         self.open_button = QPushButton("Open")
         self.apply_button = QPushButton("Apply")
@@ -1548,7 +1581,7 @@ class VariantTile(QFrame):
         actions.addWidget(self.rerun_button)
         layout.addWidget(self.title_label)
         layout.addWidget(self.params_label)
-        layout.addWidget(self.video_widget)
+        layout.addWidget(self.result_label)
         layout.addWidget(self.progress)
         layout.addWidget(self.status_label)
         layout.addLayout(actions)
@@ -1578,6 +1611,14 @@ class VariantTile(QFrame):
         self.open_button.setEnabled(False)
         self.progress.setValue(0)
         self.status_label.setText(f"Running: {label}")
+        self.result_label.setText("Running")
+
+    def set_queued(self, position: int) -> None:
+        self.output_path = None
+        self.open_button.setEnabled(False)
+        self.progress.setValue(0)
+        self.status_label.setText(f"Queued #{position}")
+        self.result_label.setText("Waiting in queue")
 
     def set_stage(self, label: str) -> None:
         self.status_label.setText(label)
@@ -1599,7 +1640,7 @@ class VariantTile(QFrame):
         self.output_path = output_path
         self.open_button.setEnabled(True)
         self.progress.setValue(1000)
-        self.player.setSource(QUrl.fromLocalFile(str(output_path.resolve())))
+        self.result_label.setText(output_path.name)
         timing = f"{elapsed_seconds:.1f}s"
         speed = f" | {fps:.2f} fps" if fps is not None else ""
         self.status_label.setText(f"Ready: {timing}{speed}")
@@ -1609,6 +1650,12 @@ class VariantTile(QFrame):
         self.open_button.setEnabled(False)
         speed = f" | {fps:.2f} fps" if fps is not None else ""
         self.status_label.setText(f"Failed: {error} ({elapsed_seconds:.1f}s{speed})")
+        self.result_label.setText("No output")
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        self.apply_button.setEnabled(enabled)
+        self.rerun_button.setEnabled(enabled)
+        self.open_button.setEnabled(enabled and self.output_path is not None)
 
 
 class LargeSplitWindow(QWidget):

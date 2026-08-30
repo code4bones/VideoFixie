@@ -148,11 +148,14 @@ The Variants tab benchmarks several practical Video2X live-action configurations
 Initial grid behavior:
 - plan all variants from the same source segment and output preset;
 - run variants sequentially by default to avoid VRAM contention;
+- show an explicit queued/running/ready/failed state and keep only one Video2X variant active at a time;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;
 - keep exact commands visible in Properties;
 - allow opening a completed tile in Large View;
 - allow applying a tile as the active Video2X processing profile.
+
+Tiles should stay lightweight. Do not create a separate media player per variant tile; completed tiles open through the existing preview/Large View playback path.
 
 The default live-action set excludes anime-specific models. Separate anime/custom benchmark sets may be added later.
 

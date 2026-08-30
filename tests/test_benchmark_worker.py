@@ -29,8 +29,12 @@ class BenchmarkWorkerTest(unittest.TestCase):
             output_2 = Path(tmp_dir) / "two.mp4"
             benchmark = _benchmark((output_1, output_2))
             finished = []
+            calls = []
 
             def fake_run_stage(stage, **kwargs):
+                calls.append(stage.command.label)
+                if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
                 if stage.command.label == "variant one":
                     return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("failed",))
                 output_2.write_bytes(b"ok")
@@ -50,6 +54,7 @@ class BenchmarkWorkerTest(unittest.TestCase):
                 worker.run()
 
         self.assertEqual(len(finished), 2)
+        self.assertEqual(calls, ["shared cut", "variant one", "variant two"])
         self.assertIsNotNone(finished[0].error)
         self.assertIsNone(finished[0].output_path)
         self.assertEqual(finished[1].output_path, output_2)
@@ -85,11 +90,15 @@ def _benchmark(output_paths: tuple[Path, Path]) -> PlannedVideo2XBenchmark:
             noise_level=None,
         )
         command = PlannedCommand("python", ("-c", "pass"), f"variant {'one' if index == 1 else 'two'}")
+        shared_cut = PlannedCommand("python", ("-c", "pass"), "shared cut")
         job = ProcessingJob(
             source_path=Path("samples/1.mp4"),
             output_path=output_path,
             profile=profile,
-            stages=(ProcessingStage(command.label, command),),
+            stages=(
+                ProcessingStage(shared_cut.label, shared_cut),
+                ProcessingStage(command.label, command),
+            ),
         )
         preview = PlannedPreview(media=media, environment=environment, profile=profile, segment=segment, job=job)
         variants.append(
@@ -105,4 +114,3 @@ def _benchmark(output_paths: tuple[Path, Path]) -> PlannedVideo2XBenchmark:
         output_preset=preview_output_preset(),
         variants=tuple(variants),
     )
-

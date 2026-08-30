@@ -145,6 +145,8 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.profile_combo.currentData(), profile.slug)
         self.assertEqual(window.settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
         self.assertEqual(service.saved_settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
+        self.assertFalse(hasattr(window.variant_tiles[0], "player"))
+        self.assertFalse(hasattr(window.variant_tiles[0], "video_widget"))
 
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

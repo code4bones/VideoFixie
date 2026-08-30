@@ -250,7 +250,7 @@ The bootstrap step extracts the AppImage into ignored local runtime files under 
 Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`.
 
 ## Video2X variant benchmark
-Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment and runs them sequentially with the same preview output preset.
+Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment, prepares the shared preview source once, and runs Video2X variants sequentially with the same preview output preset. Only one Video2X process should be active at a time.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, conservative, explicit noise 0 and denoise 3 where installed;
