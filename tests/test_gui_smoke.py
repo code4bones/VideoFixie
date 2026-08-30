@@ -3,10 +3,25 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 @unittest.skipIf(importlib.util.find_spec("PySide6") is None, "PySide6 is not installed")
 class GuiSmokeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        def fail_dialog(parent, title, text, *args, **kwargs):
+            del parent, args, kwargs
+            raise AssertionError(f"Unexpected QMessageBox dialog: {title}: {text}")
+
+        self._critical_patcher = patch("videofixie.ui.main_window.QMessageBox.critical", side_effect=fail_dialog)
+        self._warning_patcher = patch("videofixie.ui.main_window.QMessageBox.warning", side_effect=fail_dialog)
+        self._critical_patcher.start()
+        self._warning_patcher.start()
+        self.addCleanup(self._warning_patcher.stop)
+        self.addCleanup(self._critical_patcher.stop)
+
     def test_main_window_can_be_constructed_offscreen(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -1381,6 +1396,7 @@ class GuiSmokeTest(unittest.TestCase):
         from videofixie.domain.profiles import bundled_profiles
         from videofixie.domain.settings import AppSettings
         from videofixie.jobs.runner import JobRunResult, StageRunResult
+        from videofixie.services.app import PlannedPreview
         from videofixie.services.environment import MachineEnvironment, ToolStatus
         from videofixie.ui.main_window import MainWindow
 
@@ -1433,6 +1449,26 @@ class GuiSmokeTest(unittest.TestCase):
             def preview_results_for_source(self, path):
                 del path
                 return ()
+
+            def plan_preview_with_context(
+                self,
+                source_path,
+                work_dir,
+                profile,
+                segment,
+                media,
+                environment,
+                device_index=None,
+                output_preset=None,
+            ):
+                del work_dir, device_index, output_preset
+                return PlannedPreview(
+                    media=media,
+                    environment=environment,
+                    profile=profile,
+                    segment=segment,
+                    job=ProcessingJob(source_path=source_path, output_path=Path("out.mp4"), profile=profile, stages=()),
+                )
 
         window = MainWindow(service=FakeService())
         old_source = Path("/media/clip-a.mp4")

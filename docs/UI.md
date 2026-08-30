@@ -169,6 +169,7 @@ Initial grid behavior:
 - keep the run status aggregated by active/done/ready/failed counts instead of following only the last tile event;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;
+- exclude Video2X combinations quarantined by observed backend hangs from the default grid;
 - treat known fatal backend output markers as failed even when an output file was created;
 - keep exact commands visible in Properties;
 - allow opening a completed tile in Large View;

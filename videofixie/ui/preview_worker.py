@@ -19,6 +19,7 @@ from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.run_logs import RunLogFile, create_run_directory
 
 BACKEND_INACTIVITY_TIMEOUT_SECONDS = 90.0
+BACKEND_FINAL_OUTPUT_GRACE_SECONDS = 10.0
 
 
 class PreviewWorker(QObject):
@@ -56,6 +57,8 @@ class PreviewWorker(QObject):
             runner = SubprocessJobRunner(
                 progress_parser=_parse_preview_progress_line,
                 inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+                final_output_detector=_detect_video2x_final_encoder_output,
+                final_output_grace_seconds=BACKEND_FINAL_OUTPUT_GRACE_SECONDS,
             )
             results = []
             for stage in self.job.stages:
@@ -118,6 +121,13 @@ class PreviewWorker(QObject):
 def successful_output_path(result: JobRunResult, expected_path: Path) -> Path | None:
     if result.succeeded and expected_path.exists():
         return expected_path
+    return None
+
+
+def _detect_video2x_final_encoder_output(line: ProcessLogLine) -> str | None:
+    text = line.text.lower()
+    if line.stream == "stdout" and "[ffmpeg]" in text and "libx264" in text and "kb/s:" in text:
+        return "Video2X FFmpeg encoder summary"
     return None
 
 

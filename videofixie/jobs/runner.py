@@ -14,6 +14,7 @@ from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
 ProgressParser = Callable[[str], JobProgress | None]
 OutputCallback = Callable[["ProcessLogLine"], None]
 ProgressCallback = Callable[[JobProgress], None]
+FinalOutputDetector = Callable[["ProcessLogLine"], str | None]
 
 
 @dataclass(frozen=True)
@@ -68,10 +69,14 @@ class SubprocessJobRunner:
         progress_parser: ProgressParser | None = None,
         terminate_grace_seconds: float = 2.0,
         inactivity_timeout_seconds: float | None = None,
+        final_output_detector: FinalOutputDetector | None = None,
+        final_output_grace_seconds: float | None = None,
     ) -> None:
         self.progress_parser = progress_parser
         self.terminate_grace_seconds = terminate_grace_seconds
         self.inactivity_timeout_seconds = inactivity_timeout_seconds
+        self.final_output_detector = final_output_detector
+        self.final_output_grace_seconds = final_output_grace_seconds
 
     def run_job(
         self,
@@ -137,6 +142,8 @@ class SubprocessJobRunner:
         progress_events: list[JobProgress] = []
         output_queue: queue.Queue[ProcessLogLine | None] = queue.Queue()
         runtime_error: str | None = None
+        final_output_time: float | None = None
+        final_output_marker: str | None = None
 
         process = subprocess.Popen(
             command.argv(),
@@ -165,11 +172,27 @@ class SubprocessJobRunner:
             try:
                 item = output_queue.get(timeout=0.05)
             except queue.Empty:
+                now = time.monotonic()
+                if (
+                    runtime_error is None
+                    and final_output_time is not None
+                    and self.final_output_grace_seconds is not None
+                    and process.poll() is None
+                    and now - final_output_time >= self.final_output_grace_seconds
+                ):
+                    marker = final_output_marker or "final process output"
+                    runtime_error = (
+                        f"Process stayed alive for {self.final_output_grace_seconds:.0f}s after {marker}"
+                    )
+                    if on_output is not None:
+                        on_output(ProcessLogLine(stream="runtime", text=runtime_error))
+                    _terminate_process(process, self.terminate_grace_seconds)
+                    continue
                 if (
                     runtime_error is None
                     and self.inactivity_timeout_seconds is not None
                     and process.poll() is None
-                    and time.monotonic() - last_output_time >= self.inactivity_timeout_seconds
+                    and now - last_output_time >= self.inactivity_timeout_seconds
                 ):
                     runtime_error = f"Process produced no output for {self.inactivity_timeout_seconds:.0f}s"
                     if on_output is not None:
@@ -189,6 +212,12 @@ class SubprocessJobRunner:
 
             if on_output is not None:
                 on_output(item)
+
+            if self.final_output_detector is not None:
+                marker = self.final_output_detector(item)
+                if marker is not None:
+                    final_output_time = last_output_time
+                    final_output_marker = marker
 
             progress = self.progress_parser(item.text) if self.progress_parser is not None else None
             if progress is not None:

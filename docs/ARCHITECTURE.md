@@ -147,6 +147,9 @@ otherwise make QtMultimedia emit decoder errors directly to the console.
 Subprocess stages also have a conservative inactivity watchdog. If a backend process stops producing
 stdout/stderr while staying alive, the runner terminates it and records a runtime error instead of
 blocking the queue indefinitely.
+Video2X stages additionally use a shorter post-encoder-summary watchdog: once the final FFmpeg
+encoder summary appears, the process is expected to exit promptly. If it remains alive, the runner
+records a post-encode hang instead of waiting for the full inactivity timeout.
 
 ## Configuration
 Keep two kinds of configuration separate:

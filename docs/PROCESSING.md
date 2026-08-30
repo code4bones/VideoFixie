@@ -263,11 +263,16 @@ stage before it is marked Ready or offered to the player. Decoder errors such as
 units or AAC bitstream errors must fail the tile and remain visible in the run log.
 If Video2X writes final encoder statistics and then remains alive without output, the runner should
 terminate the silent stage through the inactivity watchdog and keep the tile failed for inspection.
+When the final Video2X FFmpeg encoder summary is observed, use a shorter post-encode grace timeout
+than the general inactivity watchdog. In observed Video2X 6.4 runs, RealCUGAN `models-se` x2
+`denoise 2` and `models-nose` x2 `no denoise` reached the final libx264 `kb/s` summary and then
+stayed alive until terminated. The GUI console also showed CUDA/NVDEC setup warnings about too many
+decode surfaces under this run, so these combinations are quarantined from the default benchmark
+matrix until a backend capability proves them stable.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
-- RealCUGAN `models-se`: default/no denoise, explicit noise 0, denoise 1 and denoise 2 where installed;
-- RealCUGAN `models-nose`: explicit noise 0 where installed; default is excluded because Video2X 6.4 tries the missing conservative model file;
+- RealCUGAN `models-se`: default/no denoise, explicit noise 0 and denoise 1 where installed;
 - RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
 
 Anime-specific Video2X models are intentionally excluded from the default live-action matrix. A failed variant should record its error and allow the remaining variants to continue.

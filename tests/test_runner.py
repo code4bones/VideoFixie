@@ -70,6 +70,30 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertIn("started", result.stdout)
         self.assertTrue(any(line.stream == "runtime" for line in output))
 
+    def test_run_command_times_out_after_final_output_marker(self) -> None:
+        command = PlannedCommand(
+            sys.executable,
+            (
+                "-c",
+                "import time; "
+                "print('[FFmpeg] [libx264 @ 0x1] kb/s:296.77', flush=True); "
+                "time.sleep(5)",
+            ),
+            "post encode hang",
+        )
+        output = []
+
+        result = SubprocessJobRunner(
+            final_output_detector=lambda line: "encoder summary" if "kb/s:" in line.text else None,
+            final_output_grace_seconds=0.2,
+            inactivity_timeout_seconds=5.0,
+        ).run_command(command, on_output=output.append)
+
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.exit_code, -15)
+        self.assertIn("after encoder summary", result.runtime_error or "")
+        self.assertTrue(any(line.stream == "runtime" for line in output))
+
     def test_stage_runtime_error_marks_result_unsuccessful(self) -> None:
         command = PlannedCommand(sys.executable, ("-c", "pass"), "runtime failed")
         result = StageRunResult("runtime failed", command, exit_code=0, runtime_error="backend failed")

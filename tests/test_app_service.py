@@ -292,6 +292,8 @@ class VideoFixieServiceTest(unittest.TestCase):
                 _profile("realcugan", "models-pro", 2, None),
                 _profile("realcugan", "models-pro", 2, -1),
                 _profile("realcugan", "models-pro", 2, 0),
+                _profile("realcugan", "models-se", 2, 1),
+                _profile("realcugan", "models-se", 2, 2),
                 _profile("realcugan", "models-nose", 2, None),
                 _profile("realcugan", "models-nose", 2, 0),
             ):
@@ -308,6 +310,14 @@ class VideoFixieServiceTest(unittest.TestCase):
 
         self.assertEqual(benchmark.segment, segment)
         self.assertEqual(len(benchmark.variants), 3)
+        self.assertNotIn(
+            "benchmark-realcugan-models-se-x2-noise2",
+            {variant.variant.profile.slug for variant in benchmark.variants},
+        )
+        self.assertNotIn(
+            "benchmark-realcugan-models-nose-x2-noise0",
+            {variant.variant.profile.slug for variant in benchmark.variants},
+        )
         self.assertEqual({variant.preview.output_preset.slug for variant in benchmark.variants}, {"preview"})
         self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
         self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))

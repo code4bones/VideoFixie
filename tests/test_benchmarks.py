@@ -30,6 +30,7 @@ class Video2XBenchmarkMatrixTest(unittest.TestCase):
                 _profile("realcugan", "models-pro", 2, -1),
                 _profile("realcugan", "models-pro", 2, 0),
                 _profile("realcugan", "models-se", 2, 1),
+                _profile("realcugan", "models-se", 2, 2),
                 _profile("realcugan", "models-nose", 2, None),
                 _profile("realcugan", "models-nose", 2, 0),
                 _profile("realesrgan", "realesrgan-plus", 4, None),
@@ -45,11 +46,12 @@ class Video2XBenchmarkMatrixTest(unittest.TestCase):
                 "benchmark-realcugan-models-pro-x2-default",
                 "benchmark-realcugan-models-pro-x2-noise0",
                 "benchmark-realcugan-models-se-x2-noise1",
-                "benchmark-realcugan-models-nose-x2-noise0",
                 "benchmark-realesrgan-plus-x4",
             ],
         )
         self.assertTrue(all("anime" not in slug for slug in slugs))
+        self.assertNotIn("benchmark-realcugan-models-se-x2-noise2", slugs)
+        self.assertNotIn("benchmark-realcugan-models-nose-x2-noise0", slugs)
 
     def test_matrix_returns_empty_when_video2x_capabilities_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
