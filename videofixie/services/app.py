@@ -22,7 +22,8 @@ from videofixie.domain.settings import AppSettings
 from videofixie.services.benchmarks import build_video2x_benchmark_variants
 from videofixie.services.environment import MachineEnvironment, discover_environment
 from videofixie.services.history import PreviewResult, SavedCut, VideoFixieHistory
-from videofixie.services.planner import build_test_segment_job
+from videofixie.services.planner import build_release_job, build_test_segment_job
+from videofixie.services.release_presets import release_output_path
 from videofixie.services.settings import VideoFixieSettingsStore
 
 
@@ -49,6 +50,16 @@ class PlannedVideo2XBenchmark:
     segment: TestSegment
     output_preset: OutputPreset
     variants: tuple[PlannedBenchmarkVariant, ...]
+
+
+@dataclass(frozen=True)
+class PlannedRelease:
+    media: MediaInfo
+    environment: MachineEnvironment
+    profile: ProcessingProfile
+    release_preset: ReleasePreset
+    output_preset: OutputPreset
+    job: ProcessingJob
 
 
 class VideoFixieService:
@@ -231,6 +242,55 @@ class VideoFixieService:
             job=job,
         )
 
+    def plan_release_with_context(
+        self,
+        source_path: str | Path,
+        work_dir: str | Path,
+        profile: ProcessingProfile,
+        release_preset: ReleasePreset,
+        media: MediaInfo,
+        environment: MachineEnvironment,
+        device_index: int | None = None,
+    ) -> PlannedRelease:
+        settings = self.load_settings()
+        if not environment.ffmpeg.available or environment.ffmpeg.path is None:
+            raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
+        if not environment.ffprobe.available or environment.ffprobe.path is None:
+            raise RuntimeError(f"ffprobe is unavailable: {environment.ffprobe.error}")
+
+        output_preset = _output_preset_by_slug(self.output_presets(), release_preset.output_preset_slug)
+        selected_device = _selected_video2x_device(settings.active_backend_slug, environment, device_index)
+        output_path = release_output_path(
+            source_path=source_path,
+            project_root=self.project_root,
+            profile=profile,
+            release_preset=release_preset,
+        )
+        job = build_release_job(
+            source_path=source_path,
+            work_dir=_project_path(self.project_root, work_dir),
+            output_path=output_path,
+            profile=profile,
+            release_preset=release_preset,
+            device_index=selected_device,
+            ffmpeg=FFmpegAdapter(ffmpeg_path=environment.ffmpeg.path, ffprobe_path=environment.ffprobe.path),
+            video2x=_video2x_adapter(settings.active_backend_slug, environment),
+            capabilities=environment.video2x_capabilities,
+            output_preset=output_preset,
+            backend_slug=settings.active_backend_slug,
+            vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
+            models_directory=_project_path(self.project_root, settings.models_directory),
+            vapoursynth_plugins=environment.vapoursynth_plugins,
+        )
+        return PlannedRelease(
+            media=media,
+            environment=environment,
+            profile=profile,
+            release_preset=release_preset,
+            output_preset=output_preset,
+            job=job,
+        )
+
     def plan_video2x_benchmark_with_context(
         self,
         source_path: str | Path,
@@ -334,3 +394,10 @@ def _vapoursynth_adapter(active_backend_slug: str, environment: MachineEnvironme
 def _project_path(project_root: Path, path: str | Path) -> Path:
     value = Path(path)
     return value if value.is_absolute() else project_root / value
+
+
+def _output_preset_by_slug(presets: tuple[OutputPreset, ...], slug: str) -> OutputPreset:
+    for preset in presets:
+        if preset.slug == slug:
+            return preset
+    raise ValueError(f"Unknown output preset: {slug}")

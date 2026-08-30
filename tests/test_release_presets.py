@@ -1,8 +1,16 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.release_presets import ReleasePreset, default_release_preset
-from videofixie.services.release_presets import build_release_preset, output_preset_for_goal, release_goal_choices
+from videofixie.domain.profiles import bundled_profiles
+from videofixie.services.release_presets import (
+    build_release_preset,
+    output_preset_for_goal,
+    release_goal_choices,
+    release_output_path,
+)
 
 
 class ReleasePresetTest(unittest.TestCase):
@@ -52,3 +60,25 @@ class ReleasePresetTest(unittest.TestCase):
         self.assertEqual(preset.output_preset_slug, "archive")
         self.assertIn("Archive Release", preset.human_summary_lines()[0])
         self.assertIn("container=mkv", preset.technical_summary_lines())
+
+    def test_release_output_path_uses_template_and_avoids_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            preset = build_release_preset(
+                goal_slug="balanced",
+                resolution_policy="preserve-restored-size",
+                container="mp4",
+                audio_policy="copy",
+                subtitle_policy="copy-compatible",
+                metadata_policy="copy",
+                destination_directory="outputs",
+                naming_template="{source_stem}.{profile}.{release_goal}.{container}",
+            )
+            profile = bundled_profiles()[0]
+            first = release_output_path("source clip.mp4", root, profile, preset)
+            first.parent.mkdir(parents=True)
+            first.write_bytes(b"existing")
+            second = release_output_path("source clip.mp4", root, profile, preset)
+
+        self.assertEqual(first.name, f"source-clip.{profile.slug}.balanced.mp4")
+        self.assertTrue(second.name.endswith("-001.mp4"))

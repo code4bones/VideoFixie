@@ -47,8 +47,9 @@ from videofixie.services.environment import MachineEnvironment
 from videofixie.services.history import PreviewResult, SavedCut
 from videofixie.services.system_metrics import SystemMetricsCollector, format_bytes
 from videofixie.ui.benchmark_worker import BenchmarkVariantRun, BenchmarkWorker
-from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
+from videofixie.ui.preview_worker import PreviewWorker, _stage_display, successful_output_path
 from videofixie.ui.properties_dialog import PropertiesDialog
+from videofixie.ui.release_worker import ReleaseWorker
 from videofixie.ui.release_preset_wizard import ReleasePresetWizard
 from videofixie.ui.settings_dialog import SettingsDialog
 from videofixie.ui.timeline import SegmentTimeline
@@ -93,6 +94,11 @@ class MainWindow(QMainWindow):
         self.active_benchmark_indices: set[int] = set()
         self.finished_benchmark_indices: set[int] = set()
         self.current_benchmark_indices: set[int] = set()
+        self.release_queue: list[tuple[object, "ReleaseQueueRow"]] = []
+        self.release_thread: QThread | None = None
+        self.release_worker: ReleaseWorker | None = None
+        self.active_release_row: ReleaseQueueRow | None = None
+        self.active_release_plan = None
         self.metrics_collector = SystemMetricsCollector()
         self.gpu_load_history: list[int] = []
         self.cpu_load_history: list[int] = []
@@ -332,6 +338,22 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.preview_progress, 1)
         progress_row.addWidget(self.preview_status)
         timeline_layout.addLayout(progress_row)
+
+        release_queue_header = QHBoxLayout()
+        release_queue_title = QLabel("Release Queue")
+        release_queue_title.setStyleSheet("font-weight: 600;")
+        self.release_queue_status = QLabel("Idle")
+        self.cancel_release_button = QPushButton("Cancel Release")
+        self.cancel_release_button.setEnabled(False)
+        release_queue_header.addWidget(release_queue_title)
+        release_queue_header.addWidget(self.release_queue_status, 1)
+        release_queue_header.addWidget(self.cancel_release_button)
+        timeline_layout.addLayout(release_queue_header)
+        self.release_queue_widget = QWidget()
+        self.release_queue_layout = QVBoxLayout(self.release_queue_widget)
+        self.release_queue_layout.setContentsMargins(0, 0, 0, 0)
+        self.release_queue_layout.setSpacing(4)
+        timeline_layout.addWidget(self.release_queue_widget)
         root_layout.addWidget(timeline_panel)
 
         self.in_spin.valueChanged.connect(self._on_segment_controls_changed)
@@ -349,6 +371,7 @@ class MainWindow(QMainWindow):
         self.run_preview_button.clicked.connect(self.toggle_preview)
         self.run_variants_button.clicked.connect(self.toggle_benchmark)
         self.apply_variant_button.clicked.connect(self.apply_selected_variant)
+        self.cancel_release_button.clicked.connect(self.cancel_release)
 
         self._apply_settings_defaults_to_controls()
         self._update_large_view_state()
@@ -430,18 +453,37 @@ class MainWindow(QMainWindow):
         self.properties_dialog.activateWindow()
 
     def open_release_preset_wizard(self) -> None:
+        if self.source_path is None or self.media is None or self.environment is None:
+            self.preview_status.setText("Open a source video before release")
+            return
         wizard = ReleasePresetWizard(self.media, self)
         if wizard.exec() != QDialog.DialogCode.Accepted:
             return
         self.current_release_preset = wizard.release_preset()
-        self.command_text.appendPlainText(
-            "\nRelease preset:\n"
-            + "\n".join(self.current_release_preset.human_summary_lines())
-            + "\n\nRelease technical settings:\n"
-            + "\n".join(self.current_release_preset.technical_summary_lines())
-        )
-        self._refresh_properties_dialog()
-        self.preview_status.setText(f"Release preset ready: {self.current_release_preset.name}")
+        if self.processed_output_path is None:
+            answer = QMessageBox.question(
+                self,
+                "Queue release without preview?",
+                "No processed preview is ready for the current source/profile. Queue the full release anyway?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            release = self.service.plan_release_with_context(
+                source_path=self.source_path,
+                work_dir=self._release_work_dir(),
+                profile=self._selected_profile(),
+                release_preset=self.current_release_preset,
+                media=self.media,
+                environment=self.environment,
+                device_index=self._selected_device_index(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Release planning failed", str(exc))
+            return
+        self._write_release_plan_log(release)
+        self._enqueue_release(release)
+        self.preview_status.setText(f"Release queued: {release.job.output_path.name}")
 
     def load_source(self, path: Path) -> None:
         try:
@@ -900,12 +942,14 @@ class MainWindow(QMainWindow):
         completed = sum(1 for tile in self.variant_tiles if tile.output_path is not None)
         self.variant_status_label.setText(f"Variant benchmark finished: {completed}/{len(self.variant_tiles)} ready")
         self._set_benchmark_running(False)
+        self._start_next_release()
 
     def _on_benchmark_failed(self, message: str) -> None:
         self.active_benchmark_indices.clear()
         self.variant_status_label.setText("Variant benchmark failed")
         self._set_benchmark_running(False)
         QMessageBox.critical(self, "Variant benchmark failed", message)
+        self._start_next_release()
 
     def _cleanup_benchmark_thread(self) -> None:
         if self.benchmark_thread is not None:
@@ -949,6 +993,98 @@ class MainWindow(QMainWindow):
             self.ram_metric_label.setText("RAM N/A")
         else:
             self.ram_metric_label.setText(f"RAM {ram_used}/{ram_total}{ram_percent}")
+
+    def _enqueue_release(self, release) -> None:
+        row = ReleaseQueueRow(release.job.output_path.name, str(release.job.output_path))
+        queued_position = len(self.release_queue) + (1 if self.release_thread is not None else 0) + 1
+        row.set_queued(queued_position)
+        self.release_queue_layout.addWidget(row)
+        self.release_queue.append((release, row))
+        self.release_queue_status.setText(f"{len(self.release_queue)} queued")
+        self._start_next_release()
+
+    def _start_next_release(self) -> None:
+        if self.release_thread is not None or not self.release_queue:
+            return
+        if self.preview_thread is not None or self.benchmark_thread is not None:
+            self.release_queue_status.setText("Waiting for Preview/Variants")
+            return
+        release, row = self.release_queue.pop(0)
+        self.active_release_plan = release
+        self.active_release_row = row
+        row.set_running("Starting")
+        self.release_thread = QThread(self)
+        self.release_worker = ReleaseWorker(release, run_logs_root=self._run_logs_root())
+        self.release_worker.moveToThread(self.release_thread)
+        self.release_thread.started.connect(self.release_worker.run)
+        self.release_worker.stageStarted.connect(self._on_release_stage_started)
+        self.release_worker.outputReceived.connect(self._on_release_output)
+        self.release_worker.progressChanged.connect(self._on_release_progress)
+        self.release_worker.finished.connect(self._on_release_finished)
+        self.release_worker.failed.connect(self._on_release_failed)
+        self.release_worker.finished.connect(self.release_thread.quit)
+        self.release_worker.failed.connect(self.release_thread.quit)
+        self.release_worker.finished.connect(self.release_worker.deleteLater)
+        self.release_worker.failed.connect(self.release_worker.deleteLater)
+        self.release_thread.finished.connect(self._cleanup_release_thread)
+        self.cancel_release_button.setEnabled(True)
+        self.release_queue_status.setText(f"Running: {release.job.output_path.name}")
+        self.release_thread.start()
+
+    def cancel_release(self) -> None:
+        if self.release_worker is not None:
+            self.release_queue_status.setText("Cancelling release")
+            self.release_worker.cancel()
+
+    def _on_release_stage_started(self, label: str, command: str) -> None:
+        if self.active_release_row is not None:
+            self.active_release_row.set_running(label)
+        self.release_queue_status.setText(label)
+        self.command_text.appendPlainText(f"\n[Release] Running: {label}\n{command}")
+        self._refresh_properties_dialog()
+
+    def _on_release_output(self, line: str) -> None:
+        self.command_text.appendPlainText(f"[Release] {line}")
+        self._refresh_properties_dialog()
+
+    def _on_release_progress(self, progress) -> None:
+        if self.active_release_row is not None:
+            self.active_release_row.set_progress(progress)
+
+    def _on_release_finished(self, result) -> None:
+        if self.active_release_row is not None:
+            elapsed = sum(stage.duration_seconds for stage in result.stages)
+            progress_events = [progress for stage in result.stages for progress in stage.progress]
+            fps = next((progress.fps for progress in reversed(progress_events) if progress.fps is not None), None)
+            if result.succeeded and self.active_release_plan is not None and self.active_release_plan.job.output_path.exists():
+                self.active_release_row.set_completed(elapsed, fps)
+                self.release_queue_status.setText(f"Release ready: {self.active_release_plan.job.output_path.name}")
+            elif result.cancelled:
+                self.active_release_row.set_failed("cancelled", elapsed, fps)
+                self.release_queue_status.setText("Release cancelled")
+            else:
+                failed = result.stages[-1] if result.stages else None
+                error = failed.runtime_error if failed is not None and failed.runtime_error else "failed"
+                self.active_release_row.set_failed(error, elapsed, fps)
+                self.release_queue_status.setText(f"Release failed: {error}")
+        self.cancel_release_button.setEnabled(False)
+
+    def _on_release_failed(self, message: str) -> None:
+        if self.active_release_row is not None:
+            self.active_release_row.set_failed(message, 0, None)
+        self.cancel_release_button.setEnabled(False)
+        self.release_queue_status.setText("Release failed")
+        QMessageBox.critical(self, "Release failed", message)
+
+    def _cleanup_release_thread(self) -> None:
+        if self.release_thread is not None:
+            self.release_thread.deleteLater()
+        self.release_worker = None
+        self.release_thread = None
+        self.active_release_row = None
+        self.active_release_plan = None
+        if self.release_queue:
+            QTimer.singleShot(0, self._start_next_release)
 
     def _mark_benchmark_queue(self, indices: tuple[int, ...] | None) -> None:
         selected_indices = indices or tuple(range(len(self.variant_tiles)))
@@ -1007,6 +1143,25 @@ class MainWindow(QMainWindow):
             for stage_index, stage in enumerate(planned_variant.preview.job.stages, start=1):
                 lines.extend([f"  Stage {stage_index}: {stage.label}", f"  {stage.command.display()}"])
         self.command_text.setPlainText("\n".join(lines))
+        self._refresh_properties_dialog()
+
+    def _write_release_plan_log(self, release) -> None:
+        lines = [
+            "Release export:",
+            f"Output: {release.job.output_path}",
+            f"Profile: {release.profile.name} ({release.profile.slug})",
+            f"Release preset: {release.release_preset.name} ({release.release_preset.slug})",
+            f"Output preset: {release.output_preset.name} ({release.output_preset.slug})",
+            "",
+            "Human summary:",
+            *release.release_preset.human_summary_lines(),
+            "",
+            "Technical settings:",
+            *release.release_preset.technical_summary_lines(),
+        ]
+        for stage_index, stage in enumerate(release.job.stages, start=1):
+            lines.extend(["", f"Stage {stage_index}: {stage.label}", _stage_display(stage)])
+        self.command_text.appendPlainText("\n" + "\n".join(lines))
         self._refresh_properties_dialog()
 
     def _variant_tile(self, index: int) -> "VariantTile":
@@ -1094,14 +1249,17 @@ class MainWindow(QMainWindow):
             failed = result.stages[-1] if result.stages else None
             if failed is not None and failed.runtime_error:
                 self.preview_status.setText(f"Preview failed: {failed.runtime_error}")
+                self._start_next_release()
                 return
             exit_code = failed.exit_code if failed else "unknown"
             self.preview_status.setText(f"Preview failed: exit {exit_code}")
+        self._start_next_release()
 
     def _on_preview_failed(self, message: str) -> None:
         self._set_preview_running(False)
         self.preview_status.setText("Preview failed")
         QMessageBox.critical(self, "Preview execution failed", message)
+        self._start_next_release()
 
     def _cleanup_preview_thread(self) -> None:
         if self.preview_thread is not None:
@@ -1176,6 +1334,9 @@ class MainWindow(QMainWindow):
 
     def _preview_work_dir(self) -> Path:
         return Path(self.settings.cache_directory).expanduser() / "previews"
+
+    def _release_work_dir(self) -> Path:
+        return Path(self.settings.cache_directory).expanduser() / "releases"
 
     def _run_logs_root(self) -> Path:
         return Path(self.settings.cache_directory).expanduser() / "runs"
@@ -1614,6 +1775,8 @@ class MainWindow(QMainWindow):
             self.preview_worker.cancel()
         if self.benchmark_worker is not None:
             self.benchmark_worker.cancel()
+        if self.release_worker is not None:
+            self.release_worker.cancel()
         self.pause_active()
         if self.large_split_window is not None:
             self.large_split_window.close()
@@ -1623,6 +1786,9 @@ class MainWindow(QMainWindow):
         if self.benchmark_thread is not None:
             self.benchmark_thread.quit()
             self.benchmark_thread.wait(2000)
+        if self.release_thread is not None:
+            self.release_thread.quit()
+            self.release_thread.wait(2000)
         super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
@@ -1757,6 +1923,70 @@ class VariantTile(QFrame):
         self.apply_button.setEnabled(enabled)
         self.rerun_button.setEnabled(enabled)
         self.open_button.setEnabled(enabled and self.output_path is not None)
+
+
+class ReleaseQueueRow(QFrame):
+    def __init__(self, title: str, output_path: str) -> None:
+        super().__init__()
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet(
+            """
+            ReleaseQueueRow {
+                background: #20242c;
+                border: 1px solid #343a46;
+                border-radius: 6px;
+            }
+            """
+        )
+        layout = QGridLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-weight: 600;")
+        self.output_label = QLabel(output_path)
+        self.output_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.output_label.setWordWrap(True)
+        self.status_label = QLabel("Queued")
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        layout.addWidget(self.title_label, 0, 0)
+        layout.addWidget(self.status_label, 0, 1)
+        layout.addWidget(self.progress, 0, 2)
+        layout.addWidget(self.output_label, 1, 0, 1, 3)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 2)
+
+    def set_queued(self, position: int) -> None:
+        self.progress.setValue(0)
+        self.status_label.setText(f"Queued #{position}")
+
+    def set_running(self, label: str) -> None:
+        self.status_label.setText(label)
+
+    def set_progress(self, progress) -> None:
+        if progress.percent is not None:
+            self.progress.setValue(round(progress.percent * 10))
+        details = []
+        if progress.current_frame is not None and progress.total_frames is not None:
+            details.append(f"{progress.current_frame}/{progress.total_frames}")
+        if progress.fps is not None:
+            details.append(f"{progress.fps:.2f} fps")
+        if progress.remaining:
+            details.append(f"{progress.remaining} remaining")
+        if details:
+            self.status_label.setText(" | ".join(details))
+
+    def set_completed(self, elapsed_seconds: float, fps: float | None) -> None:
+        self.progress.setValue(1000)
+        speed = f" | {fps:.2f} fps" if fps is not None else ""
+        self.status_label.setText(f"Ready: {elapsed_seconds:.1f}s{speed}")
+
+    def set_failed(self, error: str, elapsed_seconds: float, fps: float | None) -> None:
+        speed = f" | {fps:.2f} fps" if fps is not None else ""
+        self.status_label.setText(f"Failed: {error} ({elapsed_seconds:.1f}s{speed})")
 
 
 class LargeSplitWindow(QWidget):

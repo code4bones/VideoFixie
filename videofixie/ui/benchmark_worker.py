@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from videofixie.backends.video2x import VIDEO2X_PROCESSING_LABEL, detect_runtime_error
-from videofixie.domain.jobs import ProcessingStage
-from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, StageRunResult, SubprocessJobRunner
+from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
+from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.app import PlannedVideo2XBenchmark
 from videofixie.services.run_logs import RunLogFile, create_run_directory
 from videofixie.ui.preview_worker import _parse_preview_progress_line, _stage_display, successful_output_path
@@ -192,7 +191,7 @@ class BenchmarkWorker(QObject):
                 on_output=lambda line, variant_index=index: self._handle_logged_output(variant_log, variant_index, line),
                 on_progress=lambda progress, variant_index=index: self.progressChanged.emit(variant_index, progress),
             )
-            result = _apply_video2x_runtime_error(stage, result)
+            result = apply_backend_runtime_error(stage, result)
             if variant_log is not None:
                 variant_log.append_stage_result(stage, result, include_output=False)
             stage_results.append(result)
@@ -251,12 +250,3 @@ def _job_status(result: JobRunResult) -> str:
     if result.cancelled:
         return "cancelled"
     return "failed"
-
-
-def _apply_video2x_runtime_error(stage: ProcessingStage, result: StageRunResult) -> StageRunResult:
-    if stage.command.label != VIDEO2X_PROCESSING_LABEL:
-        return result
-    runtime_error = detect_runtime_error(result.stdout, result.stderr)
-    if runtime_error is None:
-        return result
-    return replace(result, runtime_error=runtime_error)

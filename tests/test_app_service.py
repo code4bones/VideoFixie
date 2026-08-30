@@ -312,6 +312,53 @@ class VideoFixieServiceTest(unittest.TestCase):
         self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
         self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))
 
+    def test_plan_release_with_context_builds_non_destructive_output(self) -> None:
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={
+                "realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True),
+            },
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "/project/bin/video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        profile = bundled_profiles()[0]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _create_model_files(Path(tmp_dir), profile)
+            existing = Path(tmp_dir) / "outputs" / f"1.{profile.slug}.balanced.mp4"
+            existing.parent.mkdir(parents=True)
+            existing.write_bytes(b"existing")
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings())
+            release = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_release_with_context(
+                "samples/1.mp4",
+                "cache/releases",
+                profile,
+                release_preset=VideoFixieService().default_release_preset(),
+                media=media,
+                environment=environment,
+            )
+
+        self.assertTrue(release.job.output_path.name.endswith("-001.mp4"))
+        self.assertEqual(release.output_preset.slug, "balanced")
+        self.assertEqual(release.job.stages[0].label, "Run Video2X AI processing")
+        self.assertEqual(release.job.stages[1].label, "Mux release streams")
+
 
 def _create_model_files(root: Path, profile) -> Path:
     models_dir = root / "share" / "video2x" / "models"

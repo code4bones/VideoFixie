@@ -51,7 +51,7 @@ IN/OUT fields accept exact timecodes such as `12.5`, `1:02.500`, or `1:02:03.250
 `Large View` opens fullscreen playback for Original/Processed and a separate resizable side-by-side window for Split; Space toggles play/stop there.
 Use `Properties` for source/environment/profile details and the planned/run command log.
 Use `Settings` for the active processing backend, tool paths, output/cache/models directories, preferred GPU, VapourSynth Python/vspipe diagnostics, and default profile/output preset.
-Use `Release` to open the Release Preset Wizard for guided final-export choices with Recommended defaults and a technical summary.
+Use `Release` to open the Release Preset Wizard for guided final-export choices with Recommended defaults, a technical summary, and a queued full-source export job.
 Use `Variants` to run a queued Video2X benchmark grid over the current cut and compare practical RealCUGAN/RealESRGAN live-action variants without manually changing profile settings between runs.
 VapourSynth includes a conservative `VapourSynth Natural` restoration profile with BestSource decode, mild compression cleanup, temporal denoise, x2 upscale, restrained luma sharpen and source-texture reintroduction. Lanczos/Bicubic VapourSynth profiles remain available as resize baselines; external AI model plugins are not bundled yet.
 

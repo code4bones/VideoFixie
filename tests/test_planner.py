@@ -10,7 +10,8 @@ from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND
 from videofixie.domain.jobs import PreviewRange, TestSegment, TestSegmentKind
 from videofixie.domain.output_presets import bundled_output_presets, preview_output_preset
 from videofixie.domain.profiles import bundled_profiles
-from videofixie.services.planner import build_preview_job, build_test_segment_job
+from videofixie.domain.release_presets import default_release_preset
+from videofixie.services.planner import build_preview_job, build_release_job, build_test_segment_job
 
 
 class PlannerTest(unittest.TestCase):
@@ -130,6 +131,52 @@ class PlannerTest(unittest.TestCase):
                     work_dir=Path(tmp_dir),
                     profile=profile,
                     segment=TestSegment("Preview", 0, 5, TestSegmentKind.CUSTOM),
+                    device_index=0,
+                    ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
+                    video2x=Video2XAdapter("video2x"),
+                    models_directory=models_dir,
+                )
+
+    def test_build_release_job_creates_video2x_and_mux_stages(self) -> None:
+        profile = bundled_profiles()[0]
+        output_preset = next(preset for preset in bundled_output_presets() if preset.slug == "balanced")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = _create_model_files(Path(tmp_dir), profile)
+            output_path = Path(tmp_dir) / "outputs" / "clip.release.mp4"
+            job = build_release_job(
+                source_path="samples/1.mp4",
+                work_dir=Path(tmp_dir) / "cache" / "releases",
+                output_path=output_path,
+                profile=profile,
+                release_preset=default_release_preset(),
+                device_index=0,
+                ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
+                video2x=Video2XAdapter("video2x"),
+                output_preset=output_preset,
+                models_directory=models_dir,
+            )
+
+        self.assertEqual(job.output_path, output_path)
+        self.assertEqual(len(job.stages), 2)
+        self.assertEqual(job.stages[0].command.argv()[0], "video2x")
+        self.assertIn("--no-copy-streams", job.stages[0].command.argv())
+        self.assertEqual(job.stages[0].cwd, models_dir.parent)
+        self.assertEqual(job.stages[1].label, "Mux release streams")
+        self.assertIn("-c:v", job.stages[1].command.argv())
+        self.assertIn("copy", job.stages[1].command.argv())
+
+    def test_build_release_job_rejects_unimplemented_resolution_policy(self) -> None:
+        profile = bundled_profiles()[0]
+        release_preset = replace(default_release_preset(), resolution_policy="fit-1080p")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = _create_model_files(Path(tmp_dir), profile)
+            with self.assertRaisesRegex(ValueError, "not implemented"):
+                build_release_job(
+                    source_path="samples/1.mp4",
+                    work_dir=Path(tmp_dir) / "cache" / "releases",
+                    output_path=Path(tmp_dir) / "outputs" / "clip.release.mp4",
+                    profile=profile,
+                    release_preset=release_preset,
                     device_index=0,
                     ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
                     video2x=Video2XAdapter("video2x"),

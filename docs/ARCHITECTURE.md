@@ -177,7 +177,7 @@ Each preset compiles to explicit backend encoder settings such as codec, CRF and
 Saved cuts are reusable source-specific test ranges. A single source may have many named cuts with backend/profile/output choices, while preview results are immutable links to processed files created from a cut snapshot. Legacy single-cut rows remain readable as fallback data.
 
 ### Release presets
-Release presets are user-facing final export configurations. They compose lower-level output presets with container, stream preservation, destination and naming policy. The Release Preset Wizard must show recommended choices and a final technical summary before the preset is used for rendering.
+Release presets are user-facing final export configurations. They compose lower-level output presets with container, stream preservation, destination and naming policy. The Release Preset Wizard must show recommended choices and a final technical summary before the preset is used for rendering. Accepting a release preset plans a full-source export job with a non-destructive output path and adds it to the local queue. Video2X releases write a video-only intermediate first, then FFmpeg muxes source streams according to the release policy.
 
 ### Model catalog
 Model catalog and installation state are separate from processing profiles. A future Model Manager should discover bundled Video2X models and install trusted official models into the configured managed models directory.

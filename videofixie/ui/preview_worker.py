@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from shlex import quote
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from videofixie.backends.vapoursynth import parse_progress_line as parse_vapoursynth_progress_line
-from videofixie.backends.video2x import (
-    VIDEO2X_PROCESSING_LABEL,
-    detect_runtime_error,
-    parse_progress_line as parse_video2x_progress_line,
-)
+from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
 from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
-from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, StageRunResult, SubprocessJobRunner
+from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
+from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.run_logs import RunLogFile, create_run_directory
 
 
@@ -61,7 +57,7 @@ class PreviewWorker(QObject):
                     on_output=self._handle_output,
                     on_progress=self._handle_progress,
                 )
-                result = _apply_video2x_runtime_error(stage, result)
+                result = apply_backend_runtime_error(stage, result)
                 if run_log is not None:
                     run_log.append_stage_result(stage, result)
                 results.append(result)
@@ -108,12 +104,3 @@ def _job_status(result: JobRunResult) -> str:
     if result.cancelled:
         return "cancelled"
     return "failed"
-
-
-def _apply_video2x_runtime_error(stage: ProcessingStage, result: StageRunResult) -> StageRunResult:
-    if stage.command.label != VIDEO2X_PROCESSING_LABEL:
-        return result
-    runtime_error = detect_runtime_error(result.stdout, result.stderr)
-    if runtime_error is None:
-        return result
-    return replace(result, runtime_error=runtime_error)

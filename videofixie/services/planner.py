@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
@@ -10,6 +11,7 @@ from videofixie.domain.capabilities import BackendCapabilities
 from videofixie.domain.jobs import PreviewRange, ProcessingJob, ProcessingStage, TestSegment
 from videofixie.domain.output_presets import OutputPreset, preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile
+from videofixie.domain.release_presets import ReleasePreset
 
 
 def build_preview_job(
@@ -135,6 +137,116 @@ def build_test_segment_job(
                     generated_files=(render_plan.script,),
                 ),
                 ProcessingStage(label=encode_command.label, command=encode_command),
+            ),
+            output_preset=selected_output_preset,
+        )
+
+    raise ValueError(f"Unknown processing backend: {backend_slug}")
+
+
+def build_release_job(
+    source_path: str | Path,
+    work_dir: str | Path,
+    output_path: str | Path,
+    profile: ProcessingProfile,
+    release_preset: ReleasePreset,
+    device_index: int | None,
+    ffmpeg: FFmpegAdapter,
+    video2x: Video2XAdapter | None,
+    capabilities: BackendCapabilities | None = None,
+    output_preset: OutputPreset | None = None,
+    backend_slug: str = VIDEO2X_BACKEND_SLUG,
+    vapoursynth: VapourSynthAdapter | None = None,
+    models_directory: str | Path | None = None,
+    vapoursynth_plugins: tuple[str, ...] = (),
+) -> ProcessingJob:
+    validate_profile_backend_compatibility(profile, backend_slug)
+    if release_preset.resolution_policy != "preserve-restored-size":
+        raise ValueError(
+            f"Release resolution policy is not implemented yet: {release_preset.resolution_policy}"
+        )
+
+    source = Path(source_path)
+    work = Path(work_dir)
+    output = Path(output_path)
+    selected_output_preset = output_preset or preview_output_preset()
+
+    if backend_slug == VIDEO2X_BACKEND_SLUG:
+        if video2x is None:
+            raise ValueError("Video2X adapter is required for video2x backend")
+        if device_index is None:
+            raise ValueError("Device index is required for video2x backend")
+        video2x_models_directory = Path(models_directory or "share/video2x/models")
+        release_video = work / f"{source.stem}.release.{profile.slug}.{selected_output_preset.slug}.video.mp4"
+        video_only_preset = replace(
+            selected_output_preset,
+            preserve_audio=False,
+            preserve_subtitles=False,
+            preserve_metadata=False,
+        )
+        upscale_command = video2x.build_upscale_command(
+            source_path=_absolute_path(source),
+            output_path=_absolute_path(release_video),
+            profile=profile,
+            output_preset=video_only_preset,
+            device_index=device_index,
+            capabilities=capabilities,
+        )
+        validate_model_files(profile, video2x_models_directory)
+        mux_command = ffmpeg.build_release_mux_command(
+            video_source_path=release_video,
+            stream_source_path=source,
+            output_path=output,
+            output_preset=selected_output_preset,
+            audio_policy=release_preset.audio_policy,
+            subtitle_policy=release_preset.subtitle_policy,
+            metadata_policy=release_preset.metadata_policy,
+            copy_video=True,
+        )
+        return ProcessingJob(
+            source_path=source,
+            output_path=output,
+            profile=profile,
+            stages=(
+                ProcessingStage(label=upscale_command.label, command=upscale_command, cwd=video2x_models_directory.parent),
+                ProcessingStage(label=mux_command.label, command=mux_command),
+            ),
+            output_preset=selected_output_preset,
+        )
+
+    if backend_slug == VAPOURSYNTH_BACKEND_SLUG:
+        if vapoursynth is None:
+            raise ValueError("VapourSynth adapter is required for vapoursynth backend")
+        validate_pipeline_dependencies(profile, vapoursynth_plugins)
+        script_path = work / f"{source.stem}.release.{profile.slug}.vpy"
+        y4m_path = work / f"{source.stem}.release.{profile.slug}.y4m"
+        render_plan = vapoursynth.build_render_plan(
+            source_path=source,
+            script_path=script_path,
+            y4m_path=y4m_path,
+            profile=profile,
+            available_plugins=vapoursynth_plugins,
+        )
+        mux_command = ffmpeg.build_release_mux_command(
+            video_source_path=render_plan.y4m_path,
+            stream_source_path=source,
+            output_path=output,
+            output_preset=selected_output_preset,
+            audio_policy=release_preset.audio_policy,
+            subtitle_policy=release_preset.subtitle_policy,
+            metadata_policy=release_preset.metadata_policy,
+        )
+        return ProcessingJob(
+            source_path=source,
+            output_path=output,
+            profile=profile,
+            stages=(
+                ProcessingStage(
+                    label=render_plan.command.label,
+                    command=render_plan.command,
+                    generated_files=(render_plan.script,),
+                ),
+                ProcessingStage(label=mux_command.label, command=mux_command),
             ),
             output_preset=selected_output_preset,
         )

@@ -206,6 +206,98 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(preset.output_preset_slug, "balanced")
         self.assertIn("Technical settings", wizard.summary_page.summary_text.toPlainText())
 
+    def test_release_wizard_accept_queues_release_job(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+
+        from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG
+        from videofixie.domain.commands import PlannedCommand
+        from videofixie.domain.jobs import ProcessingJob, ProcessingStage
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.output_presets import bundled_output_presets
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.domain.release_presets import default_release_preset
+        from videofixie.domain.settings import AppSettings
+        from videofixie.services.app import PlannedRelease
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profile = bundled_profiles()[0]
+        output_preset = next(preset for preset in bundled_output_presets() if preset.slug == "balanced")
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=None,
+            preferred_gpu=None,
+        )
+        release_preset = default_release_preset()
+        job = ProcessingJob(
+            source_path=Path("samples/1.mp4"),
+            output_path=Path("outputs/1.release.mp4"),
+            profile=profile,
+            stages=(ProcessingStage("fake release", PlannedCommand("python", ("-c", "pass"), "fake release")),),
+            output_preset=output_preset,
+        )
+        release = PlannedRelease(
+            media=media,
+            environment=environment,
+            profile=profile,
+            release_preset=release_preset,
+            output_preset=output_preset,
+            job=job,
+        )
+
+        class FakeService:
+            def profiles(self):
+                return (profile,)
+
+            def output_presets(self):
+                return bundled_output_presets()
+
+            def load_settings(self):
+                return AppSettings(active_backend_slug=VIDEO2X_BACKEND_SLUG)
+
+            def discover_environment(self):
+                return environment
+
+            def plan_release_with_context(self, *args, **kwargs):
+                del args, kwargs
+                return release
+
+        window = MainWindow(service=FakeService())
+        window.source_path = Path("samples/1.mp4")
+        window.media = media
+        window.environment = environment
+        window.preview_thread = object()
+        with (
+            patch("videofixie.ui.main_window.ReleasePresetWizard.exec", return_value=QDialog.DialogCode.Accepted),
+            patch("videofixie.ui.main_window.ReleasePresetWizard.release_preset", return_value=release_preset),
+            patch("videofixie.ui.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes),
+        ):
+            window.open_release_preset_wizard()
+        app.processEvents()
+        window.preview_thread = None
+
+        self.assertEqual(len(window.release_queue), 1)
+        self.assertEqual(window.release_queue_status.text(), "Waiting for Preview/Variants")
+        self.assertIn("Release export:", window.command_text.toPlainText())
+        self.assertIn("fake release", window.command_text.toPlainText())
+
     def test_replanning_uses_cached_media_and_environment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

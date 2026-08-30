@@ -115,3 +115,56 @@ class FFmpegAdapter:
             args=tuple(args),
             label="Encode and mux preview",
         )
+
+    def build_release_mux_command(
+        self,
+        video_source_path: str | Path,
+        stream_source_path: str | Path,
+        output_path: str | Path,
+        output_preset: OutputPreset,
+        audio_policy: str,
+        subtitle_policy: str,
+        metadata_policy: str,
+        copy_video: bool = False,
+    ) -> PlannedCommand:
+        args: list[str] = [
+            "-y",
+            "-i",
+            str(video_source_path),
+            "-i",
+            str(stream_source_path),
+            "-map",
+            "0:v:0",
+        ]
+        if audio_policy in ("copy", "aac"):
+            args.extend(("-map", "1:a?"))
+        if subtitle_policy == "copy-compatible":
+            args.extend(("-map", "1:s?"))
+
+        if copy_video:
+            args.extend(("-c:v", "copy"))
+        else:
+            args.extend(("-c:v", output_preset.codec))
+            for encoder_option in output_preset.encoder_options():
+                key, value = encoder_option.split("=", 1)
+                args.extend((f"-{key}", value))
+
+        if audio_policy == "copy":
+            args.extend(("-c:a", "copy"))
+        elif audio_policy == "aac":
+            args.extend(("-c:a", "aac", "-b:a", "192k"))
+
+        if subtitle_policy == "copy-compatible":
+            args.extend(("-c:s", "copy"))
+
+        if metadata_policy == "copy":
+            args.extend(("-map_metadata", "1"))
+        else:
+            args.extend(("-map_metadata", "-1"))
+
+        args.extend(("-shortest", str(output_path)))
+        return PlannedCommand(
+            program=self.ffmpeg_path,
+            args=tuple(args),
+            label="Mux release streams",
+        )

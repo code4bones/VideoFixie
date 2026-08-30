@@ -125,6 +125,12 @@ The main preview controls should separate reusable ranges from rendered outputs.
 
 ## Release Preset Wizard
 Final export settings should be guided by a wizard rather than a single dense form. Each page should explain the current decision, visibly mark a safe contextual default as Recommended, and keep alternatives available. The final page must show both a human summary and exact technical settings.
+Accepting the wizard should plan a non-destructive full-source release export, append the exact stages
+to Properties, and add the job to the Release Queue instead of starting hidden work. The first
+implemented resolution policy is `preserve-restored-size`; other resize policies must be rejected
+until explicit release resize stages exist.
+If no processed preview has been produced or loaded for the current source/profile, warn before
+queueing the release but allow the user to proceed.
 
 ## Compare view
 At minimum support:
@@ -190,6 +196,7 @@ Actions:
 - view logs.
 
 Start with sequential processing. Parallel AI jobs can easily exhaust VRAM and are not necessary initially.
+Release jobs use the same process runner and fatal backend marker handling as Preview/Variants.
 
 ## Errors
 Show human-oriented headline plus raw details.

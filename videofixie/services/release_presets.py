@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import re
 
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.release_presets import ReleasePreset
+from videofixie.domain.profiles import ProcessingProfile
 
 
 @dataclass(frozen=True)
@@ -110,3 +113,52 @@ def build_release_preset(
         destination_directory=destination_directory,
         naming_template=naming_template,
     )
+
+
+def release_output_path(
+    source_path: str | Path,
+    project_root: str | Path,
+    profile: ProcessingProfile,
+    release_preset: ReleasePreset,
+) -> Path:
+    source = Path(source_path)
+    root = Path(project_root)
+    destination = Path(release_preset.destination_directory).expanduser()
+    if not destination.is_absolute():
+        destination = root / destination
+
+    tokens = {
+        "source_stem": _filename_token(source.stem),
+        "profile": _filename_token(profile.slug),
+        "release_goal": _filename_token(release_preset.release_goal_slug),
+        "output_preset": _filename_token(release_preset.output_preset_slug),
+        "container": _filename_token(release_preset.container),
+    }
+    try:
+        filename = release_preset.naming_template.format(**tokens)
+    except KeyError as exc:
+        raise ValueError(f"Unknown release naming token: {exc.args[0]}") from exc
+
+    filename = _filename_token(filename)
+    suffix = f".{release_preset.container}"
+    if not filename.endswith(suffix):
+        filename = f"{filename}{suffix}"
+    return _non_destructive_path(destination / filename)
+
+
+def _non_destructive_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for index in range(1, 1000):
+        candidate = parent / f"{stem}-{index:03d}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"No non-destructive release filename is available near {path}")
+
+
+def _filename_token(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip(".-")
+    return safe or "release"
