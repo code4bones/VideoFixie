@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self.preview_worker: PreviewWorker | None = None
         self._syncing_playhead = False
         self._restarting_playback = False
+        self._suppress_planning = True
 
         self.setWindowTitle("VideoFixie")
         self.resize(1280, 820)
@@ -81,7 +82,10 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self._build_ui()
         self._apply_style()
-        self._load_environment()
+        try:
+            self._load_environment()
+        finally:
+            self._suppress_planning = False
         self._update_profile_summary()
 
     def _build_actions(self) -> None:
@@ -310,14 +314,18 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         old_backend = self.settings.active_backend_slug
-        self.settings = dialog.settings()
-        if hasattr(self.service, "save_settings"):
-            self.service.save_settings(self.settings)
-        self._apply_settings_defaults_to_controls()
-        if old_backend != self.settings.active_backend_slug:
-            self._select_first_compatible_profile()
-        self._load_environment()
-        self.plan_preview()
+        self._suppress_planning = True
+        try:
+            self.settings = dialog.settings()
+            if hasattr(self.service, "save_settings"):
+                self.service.save_settings(self.settings)
+            self._apply_settings_defaults_to_controls()
+            if old_backend != self.settings.active_backend_slug:
+                self._select_first_compatible_profile()
+            self._load_environment()
+        finally:
+            self._suppress_planning = False
+        self._update_profile_summary()
 
     def open_properties(self) -> None:
         if self.properties_dialog is None:
@@ -350,28 +358,35 @@ class MainWindow(QMainWindow):
             return
 
         self.source_path = path
-        self.player.setSource(QUrl.fromLocalFile(str(path)))
-        self.split_original_player.setSource(QUrl.fromLocalFile(str(path)))
-        self.processed_player.setSource(QUrl())
-        self.split_processed_player.setSource(QUrl())
-        self.current_plan_segment = None
-        self.running_preview_job = None
-        self.running_preview_segment = None
-        self.processed_output_path = None
-        self.processed_segment = None
-        self.saved_results = ()
-        self._update_large_view_state()
-        self._update_source_info()
-        duration = self.media.duration_seconds or 0.0
-        self.timeline.set_duration(duration)
-        self.timeline.clear_display_window()
-        end = min(duration, 15.0) if duration else 15.0
-        saved_segment = self._load_saved_segment(path)
-        self._set_segment(saved_segment or TestSegment("Preview", 0.0, end, TestSegmentKind.CUSTOM))
-        self._refresh_saved_results()
-        self.plan_preview()
+        self._suppress_planning = True
+        try:
+            self.player.setSource(QUrl.fromLocalFile(str(path)))
+            self.split_original_player.setSource(QUrl.fromLocalFile(str(path)))
+            self.processed_player.setSource(QUrl())
+            self.split_processed_player.setSource(QUrl())
+            self.current_plan_segment = None
+            self.running_preview_job = None
+            self.running_preview_segment = None
+            self.processed_output_path = None
+            self.processed_segment = None
+            self.saved_results = ()
+            self._update_large_view_state()
+            self._update_source_info()
+            duration = self.media.duration_seconds or 0.0
+            self.timeline.set_duration(duration)
+            self.timeline.clear_display_window()
+            end = min(duration, 15.0) if duration else 15.0
+            saved_segment = self._load_saved_segment(path)
+            self._set_segment(saved_segment or TestSegment("Preview", 0.0, end, TestSegmentKind.CUSTOM))
+            self._select_first_compatible_profile()
+            self._refresh_saved_results()
+        finally:
+            self._suppress_planning = False
+        self._update_profile_summary()
 
     def plan_preview(self) -> None:
+        if self._suppress_planning:
+            return
         if self.source_path is None:
             self.command_text.setPlainText("Open a source video to plan preview commands.")
             self._refresh_properties_dialog()
@@ -663,7 +678,8 @@ class MainWindow(QMainWindow):
             f"Output: {output_preset.name} | {output_preset.codec} CRF {output_preset.crf} | {output_preset.encoder_preset}"
         )
         self._refresh_properties_dialog()
-        self.plan_preview()
+        if not self._suppress_planning:
+            self.plan_preview()
 
     def _selected_profile(self) -> ProcessingProfile:
         slug = self.profile_combo.currentData()

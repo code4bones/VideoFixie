@@ -329,6 +329,111 @@ class GuiSmokeTest(unittest.TestCase):
 
         self.assertEqual(window.profile_combo.currentData(), "vapoursynth-lanczos-x2")
 
+    def test_loading_saved_video2x_cut_with_vapoursynth_backend_normalizes_before_planning(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG
+        from videofixie.domain.jobs import ProcessingJob, TestSegment, TestSegmentKind
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.domain.settings import AppSettings
+        from videofixie.services.app import PlannedPreview
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.services.history import SavedCut
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", None, False, error="Executable not found"),
+            video2x_capabilities=None,
+            preferred_gpu=None,
+            vapoursynth=ToolStatus("vapoursynth", "/venv/bin/python", True, "VapourSynth R79"),
+            vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VSPipe R79"),
+        )
+        media = MediaInfo(
+            path="clip.mp4",
+            format_name="mp4",
+            duration_seconds=120,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        saved_cut = SavedCut(
+            segment=TestSegment("Saved", 10, 20, TestSegmentKind.CUSTOM),
+            profile_slug="natural-realcugan-x2",
+            output_preset_slug="preview",
+            updated_at="2026-08-30T13:45:00+00:00",
+        )
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.planned_profile_slugs = []
+
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def load_settings(self):
+                return AppSettings(
+                    active_backend_slug=VAPOURSYNTH_BACKEND_SLUG,
+                    default_profile_slug="natural-realcugan-x2",
+                )
+
+            def analyze_source(self, path):
+                del path
+                return media
+
+            def load_source_cut(self, path):
+                del path
+                return saved_cut
+
+            def preview_results_for_source(self, path):
+                del path
+                return ()
+
+            def plan_preview_with_context(
+                self,
+                source_path,
+                work_dir,
+                profile,
+                segment,
+                media,
+                environment,
+                device_index=None,
+                output_preset=None,
+            ):
+                del work_dir, device_index, output_preset
+                self.planned_profile_slugs.append(profile.slug)
+                return PlannedPreview(
+                    media=media,
+                    environment=environment,
+                    profile=profile,
+                    segment=segment,
+                    job=ProcessingJob(source_path=source_path, output_path=Path("out.mp4"), profile=profile, stages=()),
+                )
+
+        service = FakeService()
+        with patch("videofixie.ui.main_window.QMessageBox.critical") as critical:
+            window = MainWindow(service=service)
+            window.load_source(Path("/media/clip.mp4"))
+            app.processEvents()
+
+        critical.assert_not_called()
+        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-lanczos-x2")
+        self.assertIn("vapoursynth-lanczos-x2", service.planned_profile_slugs)
+        self.assertNotIn("natural-realcugan-x2", service.planned_profile_slugs)
+
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
