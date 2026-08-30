@@ -52,7 +52,7 @@ IN/OUT fields accept exact timecodes such as `12.5`, `1:02.500`, or `1:02:03.250
 Use `Properties` for source/environment/profile details and the planned/run command log.
 Use `Settings` for the active processing backend, tool paths, output/cache/models directories, preferred GPU, VapourSynth Python/vspipe diagnostics, and default profile/output preset.
 Use `Release` to open the Release Preset Wizard for guided final-export choices with Recommended defaults and a technical summary.
-VapourSynth preview profiles currently use BestSource plus built-in resize filters as a runnable baseline; external AI model plugins are not bundled yet.
+VapourSynth includes a conservative `VapourSynth Natural` restoration profile with BestSource decode, mild compression cleanup, temporal denoise, x2 upscale, restrained luma sharpen and source-texture reintroduction. Lanczos/Bicubic VapourSynth profiles remain available as resize baselines; external AI model plugins are not bundled yet.
 
 Preview cuts and result history are persisted in a local SQLite database:
 

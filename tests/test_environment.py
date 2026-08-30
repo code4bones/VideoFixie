@@ -92,6 +92,7 @@ class EnvironmentTest(unittest.TestCase):
             patch("videofixie.services.environment.Video2XAdapter.version", return_value="6.4.0"),
             patch("videofixie.services.environment.Video2XAdapter.capabilities", return_value=capabilities),
             patch("videofixie.services.environment.VapourSynthAdapter.version", return_value="VapourSynth R79"),
+            patch("videofixie.services.environment.VapourSynthAdapter.plugin_namespaces", return_value=("bs", "std", "resize")),
         ):
             env = discover_environment(
                 ".",
@@ -106,6 +107,7 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(env.vspipe.path, "/custom/vspipe")
         self.assertTrue(env.vspipe.available)
         self.assertEqual(env.vspipe.version, "vspipe R79")
+        self.assertEqual(env.vapoursynth_plugins, ("bs", "std", "resize"))
 
     def test_discover_environment_finds_vspipe_next_to_configured_python(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

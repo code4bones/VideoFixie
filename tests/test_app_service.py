@@ -105,6 +105,41 @@ class VideoFixieServiceTest(unittest.TestCase):
             self.assertEqual(plan.job.stages[1].command.argv()[0], "/venv/bin/vspipe")
             self.assertEqual(plan.job.stages[2].label, "Encode and mux preview")
 
+    def test_plan_preview_reports_missing_vapoursynth_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings(active_backend_slug=VAPOURSYNTH_BACKEND_SLUG))
+            service = VideoFixieService(settings_store=store)
+            environment = MachineEnvironment(
+                ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+                ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+                video2x=ToolStatus("video2x", None, False, error="Executable not found"),
+                video2x_capabilities=None,
+                preferred_gpu=None,
+                vapoursynth=ToolStatus("vapoursynth", "/venv/bin/python", True, "VapourSynth R79"),
+                vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VSPipe R79"),
+                vapoursynth_plugins=("std", "resize"),
+            )
+            media = MediaInfo(
+                path="samples/1.mp4",
+                format_name="mp4",
+                duration_seconds=60,
+                bit_rate=100,
+                size_bytes=1000,
+                video_streams=(),
+                audio_streams=(),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "Missing VapourSynth plugin dependency"):
+                service.plan_preview_with_context(
+                    "samples/1.mp4",
+                    "cache/previews",
+                    next(profile for profile in bundled_profiles() if profile.slug == "vapoursynth-natural-x2"),
+                    TestSegment("Face", 1, 6),
+                    media=media,
+                    environment=environment,
+                )
+
     def test_history_facade_saves_segment_and_preview_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             history = VideoFixieHistory(Path(tmp_dir) / "history.sqlite3")

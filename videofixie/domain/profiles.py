@@ -52,6 +52,16 @@ def bundled_profiles() -> tuple[ProcessingProfile, ...]:
             experimental=True,
         ),
         ProcessingProfile(
+            slug="vapoursynth-natural-x2",
+            name="VapourSynth Natural",
+            summary="Conservative local restoration: cleanup, temporal denoise, x2 upscale, mild sharpen and texture retention.",
+            processor="vapoursynth-restoration",
+            model="restoration-natural-v1",
+            scale=2,
+            noise_level=None,
+            compatible_backend_slugs=(VAPOURSYNTH_BACKEND_SLUG,),
+        ),
+        ProcessingProfile(
             slug="vapoursynth-lanczos-x2",
             name="VapourSynth Lanczos",
             summary="BestSource decode with built-in Lanczos x2 resize. No AI model or denoise is applied.",

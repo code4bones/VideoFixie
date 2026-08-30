@@ -158,6 +158,7 @@ class VideoFixieService:
             backend_slug=settings.active_backend_slug,
             vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
             models_directory=_project_path(self.project_root, settings.models_directory),
+            vapoursynth_plugins=environment.vapoursynth_plugins,
         )
 
         return PlannedPreview(
@@ -201,6 +202,7 @@ class VideoFixieService:
             backend_slug=settings.active_backend_slug,
             vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
             models_directory=_project_path(self.project_root, settings.models_directory),
+            vapoursynth_plugins=environment.vapoursynth_plugins,
         )
 
         return PlannedPreview(

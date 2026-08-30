@@ -43,6 +43,7 @@ class MachineEnvironment:
             error="Not checked",
         )
     )
+    vapoursynth_plugins: tuple[str, ...] = ()
 
 
 def discover_environment(
@@ -63,6 +64,7 @@ def discover_environment(
     )
     video2x_status = _probe_video2x(selected_video2x_path)
     vapoursynth_status = _probe_vapoursynth_python(vapoursynth_python_path)
+    vapoursynth_plugins = _probe_vapoursynth_plugins(vapoursynth_status, vapoursynth_python_path)
     selected_vspipe_path = _default_vspipe_path(vspipe_path, vapoursynth_python_path)
     vspipe_status = _probe_tool("vspipe", ("--version",), configured_path=selected_vspipe_path)
 
@@ -89,6 +91,7 @@ def discover_environment(
         preferred_gpu=preferred_gpu,
         vapoursynth=vapoursynth_status,
         vspipe=vspipe_status,
+        vapoursynth_plugins=vapoursynth_plugins,
     )
 
 
@@ -176,6 +179,16 @@ def _probe_vapoursynth_python(python_path: str | Path | None = None) -> ToolStat
         return ToolStatus(name="vapoursynth", path=path, available=False, error=_subprocess_error_text(exc))
 
     return ToolStatus(name="vapoursynth", path=path, available=True, version=version)
+
+
+def _probe_vapoursynth_plugins(vapoursynth_status: ToolStatus, python_path: str | Path | None = None) -> tuple[str, ...]:
+    if not vapoursynth_status.available:
+        return ()
+    path = str(python_path) if python_path else sys.executable
+    try:
+        return VapourSynthAdapter(path).plugin_namespaces()
+    except (OSError, subprocess.SubprocessError):
+        return ()
 
 
 def _default_vspipe_path(vspipe_path: str | Path | None, python_path: str | Path | None) -> str | Path | None:

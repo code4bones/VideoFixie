@@ -25,6 +25,9 @@ class ProcessingBackendsTest(unittest.TestCase):
     def test_vapoursynth_profiles_are_separate_from_video2x_profiles(self) -> None:
         vapoursynth_profiles = [profile for profile in bundled_profiles() if profile.supports_backend(VAPOURSYNTH_BACKEND_SLUG)]
 
-        self.assertEqual([profile.slug for profile in vapoursynth_profiles], ["vapoursynth-lanczos-x2", "vapoursynth-bicubic-x2"])
+        self.assertEqual(
+            [profile.slug for profile in vapoursynth_profiles],
+            ["vapoursynth-natural-x2", "vapoursynth-lanczos-x2", "vapoursynth-bicubic-x2"],
+        )
         for profile in vapoursynth_profiles:
             self.assertFalse(profile.supports_backend(VIDEO2X_BACKEND_SLUG))

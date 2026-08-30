@@ -180,7 +180,17 @@ Reference: `https://vapoursynth.com/doc/installation.html`
 
 Windows portable archives are useful as references but should not be treated as a Linux runtime.
 
-The first runnable VapourSynth preview profiles use BestSource for decode and built-in resize filters such as Lanczos/Bicubic. They are baseline comparison profiles, not AI restoration profiles. External AI plugins and model parameters must be introduced only after their capabilities are detected and documented.
+The default VapourSynth restoration profile is `vapoursynth-natural-x2`. It uses BestSource for decode and built-in VapourSynth primitives for a conservative local restoration chain:
+
+1. source decode and high-bit-depth working format;
+2. mild compression cleanup using luma median and chroma blur;
+3. conservative temporal denoise with `std.AverageFrames`, preserving frame count and FPS;
+4. x2 upscale with `resize.Spline36`;
+5. restrained luma sharpen blended back into the upscaled clip;
+6. subtle source texture reintroduction with a high-frequency diff;
+7. final `YUV420P8` handoff to the existing encode/mux path.
+
+The Lanczos/Bicubic VapourSynth profiles remain available as resize baselines, not restoration profiles. External AI plugins and model parameters must be introduced only after their capabilities are detected and documented.
 
 ## Output resolution
 Do not force every source to 1920x1080.

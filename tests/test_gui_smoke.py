@@ -31,6 +31,7 @@ class GuiSmokeTest(unittest.TestCase):
         app.processEvents()
         self.assertIsNotNone(window.properties_dialog)
         self.assertIn("Open a source video", window.properties_dialog.command_text.toPlainText())
+        self.assertTrue(hasattr(window.properties_dialog, "vapoursynth_plugins_label"))
 
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -327,7 +328,7 @@ class GuiSmokeTest(unittest.TestCase):
         window = MainWindow(service=FakeService())
         app.processEvents()
 
-        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-lanczos-x2")
+        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-natural-x2")
 
     def test_loading_saved_video2x_cut_with_vapoursynth_backend_normalizes_before_planning(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -430,8 +431,8 @@ class GuiSmokeTest(unittest.TestCase):
             app.processEvents()
 
         critical.assert_not_called()
-        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-lanczos-x2")
-        self.assertIn("vapoursynth-lanczos-x2", service.planned_profile_slugs)
+        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-natural-x2")
+        self.assertIn("vapoursynth-natural-x2", service.planned_profile_slugs)
         self.assertNotIn("natural-realcugan-x2", service.planned_profile_slugs)
 
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:

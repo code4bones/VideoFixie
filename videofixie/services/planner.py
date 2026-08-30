@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
-from videofixie.backends.vapoursynth import VapourSynthAdapter
+from videofixie.backends.vapoursynth import VapourSynthAdapter, validate_pipeline_dependencies
 from videofixie.backends.video2x import Video2XAdapter, validate_model_files
 from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 from videofixie.domain.capabilities import BackendCapabilities
@@ -25,6 +25,7 @@ def build_preview_job(
     backend_slug: str = VIDEO2X_BACKEND_SLUG,
     vapoursynth: VapourSynthAdapter | None = None,
     models_directory: str | Path | None = None,
+    vapoursynth_plugins: tuple[str, ...] = (),
 ) -> ProcessingJob:
     return build_test_segment_job(
         source_path=source_path,
@@ -43,6 +44,7 @@ def build_preview_job(
         backend_slug=backend_slug,
         vapoursynth=vapoursynth,
         models_directory=models_directory,
+        vapoursynth_plugins=vapoursynth_plugins,
     )
 
 
@@ -59,6 +61,7 @@ def build_test_segment_job(
     backend_slug: str = VIDEO2X_BACKEND_SLUG,
     vapoursynth: VapourSynthAdapter | None = None,
     models_directory: str | Path | None = None,
+    vapoursynth_plugins: tuple[str, ...] = (),
 ) -> ProcessingJob:
     validate_profile_backend_compatibility(profile, backend_slug)
     source = Path(source_path)
@@ -104,6 +107,7 @@ def build_test_segment_job(
     if backend_slug == VAPOURSYNTH_BACKEND_SLUG:
         if vapoursynth is None:
             raise ValueError("VapourSynth adapter is required for vapoursynth backend")
+        validate_pipeline_dependencies(profile, vapoursynth_plugins)
         script_path = work / f"{source.stem}.{segment_slug}.{profile.slug}.vpy"
         y4m_path = work / f"{source.stem}.{segment_slug}.{profile.slug}.y4m"
         render_plan = vapoursynth.build_render_plan(
@@ -111,6 +115,7 @@ def build_test_segment_job(
             script_path=script_path,
             y4m_path=y4m_path,
             profile=profile,
+            available_plugins=vapoursynth_plugins,
         )
         encode_command = ffmpeg.build_encode_mux_command(
             video_source_path=render_plan.y4m_path,
