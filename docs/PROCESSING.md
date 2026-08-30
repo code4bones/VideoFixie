@@ -93,6 +93,8 @@ vkQueueSubmit failed -4
 ```
 
 which corresponds to Vulkan device-lost behavior. Kernel NVIDIA logs showed no Xid at that time.
+Video2X may still return exit code 0 and write an MP4 after this failure; treat the preview as
+corrupt and do not mark it ready when this marker appears in stdout/stderr.
 
 Do not present this combination as a stable default without further testing.
 
@@ -254,6 +256,8 @@ Video2X quality should be compared on identical source content before choosing a
 Every Variants run writes diagnostics to `cache/runs/<run-id>/`: `shared-source.log` for the cut
 stage and `variant-XX-*.log` files for each tile. Logs include command, cwd, stdout, stderr,
 exit code, elapsed time and final status.
+Known fatal backend markers such as `vkQueueSubmit failed` and `device lost` must fail the variant
+even when the backend process exits with code 0, because the produced MP4 can be visually corrupt.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;

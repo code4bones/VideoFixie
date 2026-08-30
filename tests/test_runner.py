@@ -8,7 +8,7 @@ from pathlib import Path
 from videofixie.backends.video2x import parse_progress_line
 from videofixie.domain.commands import PlannedCommand
 from videofixie.domain.jobs import GeneratedFile, ProcessingStage
-from videofixie.jobs.runner import CancellationToken, SubprocessJobRunner
+from videofixie.jobs.runner import CancellationToken, StageRunResult, SubprocessJobRunner
 
 
 class SubprocessJobRunnerTest(unittest.TestCase):
@@ -53,6 +53,12 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertTrue(result.cancelled)
         self.assertFalse(result.succeeded)
         self.assertIn("started", result.stdout)
+
+    def test_stage_runtime_error_marks_result_unsuccessful(self) -> None:
+        command = PlannedCommand(sys.executable, ("-c", "pass"), "runtime failed")
+        result = StageRunResult("runtime failed", command, exit_code=0, runtime_error="backend failed")
+
+        self.assertFalse(result.succeeded)
 
     def test_run_stage_writes_generated_files_before_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

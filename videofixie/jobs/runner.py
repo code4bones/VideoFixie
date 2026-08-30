@@ -33,10 +33,11 @@ class StageRunResult:
     progress: tuple[JobProgress, ...] = ()
     cancelled: bool = False
     duration_seconds: float = 0.0
+    runtime_error: str | None = None
 
     @property
     def succeeded(self) -> bool:
-        return self.exit_code == 0 and not self.cancelled
+        return self.exit_code == 0 and not self.cancelled and self.runtime_error is None
 
 
 @dataclass(frozen=True)

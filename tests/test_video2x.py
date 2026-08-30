@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from videofixie.backends.video2x import (
+    detect_runtime_error,
     parse_capabilities,
     parse_devices,
     parse_progress_line,
@@ -142,3 +143,10 @@ class Video2XTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "missing-model"):
             validate_profile(capabilities, profile)
+
+    def test_detect_runtime_error_rejects_vulkan_device_failure(self) -> None:
+        error = detect_runtime_error(stdout=("vkQueueSubmit failed -4",), stderr=())
+
+        self.assertIsNotNone(error)
+        assert error is not None
+        self.assertIn("Vulkan", error)

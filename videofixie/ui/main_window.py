@@ -1092,6 +1092,9 @@ class MainWindow(QMainWindow):
             self.preview_status.setText("Preview cancelled")
         else:
             failed = result.stages[-1] if result.stages else None
+            if failed is not None and failed.runtime_error:
+                self.preview_status.setText(f"Preview failed: {failed.runtime_error}")
+                return
             exit_code = failed.exit_code if failed else "unknown"
             self.preview_status.setText(f"Preview failed: exit {exit_code}")
 

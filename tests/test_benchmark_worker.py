@@ -1,3 +1,4 @@
+import dataclasses
 import importlib.util
 import threading
 import tempfile
@@ -12,6 +13,7 @@ from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage, 
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile
+from videofixie.backends.video2x import VIDEO2X_PROCESSING_LABEL
 from videofixie.jobs.runner import ProcessLogLine, StageRunResult
 from videofixie.services.app import PlannedBenchmarkVariant, PlannedPreview, PlannedVideo2XBenchmark
 from videofixie.services.environment import MachineEnvironment, ToolStatus
@@ -108,6 +110,56 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(len(finished), 3)
         self.assertEqual(max_active, 2)
         self.assertTrue(all(run.output_path is not None for run in finished))
+
+    def test_worker_rejects_video2x_vulkan_failure_even_when_output_exists(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "corrupt.mp4"
+            benchmark = _benchmark((output_path,))
+            planned_variant = benchmark.variants[0]
+            original_job = planned_variant.preview.job
+            video2x_command = PlannedCommand("video2x", ("--fake",), VIDEO2X_PROCESSING_LABEL)
+            job = dataclasses.replace(
+                original_job,
+                stages=(
+                    original_job.stages[0],
+                    ProcessingStage(VIDEO2X_PROCESSING_LABEL, video2x_command),
+                ),
+            )
+            preview = dataclasses.replace(planned_variant.preview, job=job)
+            benchmark = dataclasses.replace(
+                benchmark,
+                variants=(dataclasses.replace(planned_variant, preview=preview),),
+            )
+            finished = []
+
+            def fake_run_stage(stage, **kwargs):
+                del kwargs
+                if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0)
+                output_path.write_bytes(b"bad but present")
+                return StageRunResult(
+                    stage.label,
+                    stage.command,
+                    exit_code=0,
+                    stdout=("vkQueueSubmit failed -4",),
+                )
+
+            worker = BenchmarkWorker(benchmark)
+            worker.variantFinished.connect(finished.append)
+            with patch("videofixie.ui.benchmark_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+        self.assertEqual(len(finished), 1)
+        self.assertIsNone(finished[0].output_path)
+        self.assertIsNotNone(finished[0].error)
+        assert finished[0].error is not None
+        self.assertIn("Vulkan", finished[0].error)
 
     def test_worker_writes_run_logs_for_shared_cut_and_variants(self) -> None:
         from PySide6.QtWidgets import QApplication

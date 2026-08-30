@@ -24,6 +24,11 @@ PROGRESS_RE = re.compile(
     r"(?:.*?remaining\s*=\s*(?P<remaining>[^;,\s]+))?",
     re.IGNORECASE,
 )
+FATAL_RUNTIME_MESSAGES = (
+    ("vkQueueSubmit failed", "Vulkan queue submission failed; output may be corrupt"),
+    ("device lost", "Vulkan device lost; output may be corrupt"),
+)
+VIDEO2X_PROCESSING_LABEL = "Run Video2X AI processing"
 
 
 class Video2XAdapter:
@@ -133,7 +138,7 @@ class Video2XAdapter:
         return PlannedCommand(
             program=self.executable_path,
             args=tuple(args),
-            label="Run Video2X AI processing",
+            label=VIDEO2X_PROCESSING_LABEL,
         )
 
 
@@ -229,6 +234,15 @@ def parse_csv_items(value: str) -> tuple[str, ...]:
 def parse_version(text: str) -> str | None:
     match = VERSION_RE.search(text)
     return match.group("version") if match else None
+
+
+def detect_runtime_error(stdout: tuple[str, ...] = (), stderr: tuple[str, ...] = ()) -> str | None:
+    for line in (*stdout, *stderr):
+        normalized = line.lower()
+        for marker, message in FATAL_RUNTIME_MESSAGES:
+            if marker.lower() in normalized:
+                return message
+    return None
 
 
 def parse_capabilities(help_text: str, version_text: str = "", devices_text: str = "") -> BackendCapabilities:
