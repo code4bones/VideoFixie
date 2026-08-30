@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
         self.apply_variant_button = QPushButton("Apply Selected")
         self.variant_parallel_spin = QSpinBox()
         self.variant_parallel_spin.setRange(1, 6)
-        self.variant_parallel_spin.setValue(6)
+        self.variant_parallel_spin.setValue(3)
         self.variant_parallel_spin.setToolTip("Maximum active Video2X variants")
         self.variant_status_label = QLabel("No variants planned")
         variants_controls.addWidget(self.run_variants_button)

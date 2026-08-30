@@ -165,7 +165,7 @@ Initial grid behavior:
 - plan all variants from the same source segment and output preset;
 - run variants sequentially by default to avoid VRAM contention;
 - show an explicit queued/running/ready/failed state and keep a bounded active Video2X set;
-- expose a parallelism limit for advanced testing, capped at 6 active Video2X variants;
+- expose a parallelism limit for advanced testing, capped at 6 active Video2X variants and defaulting to 3;
 - keep the run status aggregated by active/done/ready/failed counts instead of following only the last tile event;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;

@@ -46,7 +46,7 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertIsNotNone(toolbar)
         self.assertEqual(toolbar.toolButtonStyle(), Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.assertEqual(window.variant_parallel_spin.maximum(), 6)
-        self.assertEqual(window.variant_parallel_spin.value(), 6)
+        self.assertEqual(window.variant_parallel_spin.value(), 3)
         self.assertEqual(window.variant_metrics_layout.count(), 4)
         self.assertEqual(window.gpu_metric.title, "GPU load")
         self.assertEqual(window.cpu_metric.title, "CPU load")
