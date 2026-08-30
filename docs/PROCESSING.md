@@ -217,3 +217,16 @@ Parse this into structured job progress:
 - estimated remaining.
 
 Do not rely on exact spacing or terminal control characters; parser should tolerate variations.
+
+## Video2X local layout
+Prefer an unpacked/local Video2X runtime over AppImage execution:
+
+- executable: `./bin/video2x`;
+- models: `./share/video2x/models`;
+- runtime working directory for Video2X stages: `./share/video2x`.
+
+Video2X 6.4 has no documented `--model-dir` option and resolves model files through relative paths such as `models/realcugan/models-se/up2x-denoise1x.param`. VideoFixie therefore preflights the required `.param`/`.bin` files and runs the Video2X processing stage from the parent directory of the configured models directory while passing preview input/output paths as absolute paths.
+
+Do not auto-detect `Video2X-x86_64.AppImage` as the default Video2X executable. AppImage can still be configured manually for experiments, but the normal project-local runtime should be unpacked and inspectable.
+
+Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`.

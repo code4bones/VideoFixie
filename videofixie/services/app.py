@@ -41,7 +41,7 @@ class VideoFixieService:
         history: VideoFixieHistory | None = None,
         settings_store: VideoFixieSettingsStore | None = None,
     ) -> None:
-        self.project_root = Path(project_root)
+        self.project_root = Path(project_root).resolve()
         self._history = history
         self._settings_store = settings_store
 
@@ -147,7 +147,7 @@ class VideoFixieService:
         selected_output_preset = output_preset or preview_output_preset()
         job = build_test_segment_job(
             source_path=source_path,
-            work_dir=work_dir,
+            work_dir=_project_path(self.project_root, work_dir),
             profile=profile,
             segment=segment,
             device_index=selected_device,
@@ -157,6 +157,7 @@ class VideoFixieService:
             output_preset=selected_output_preset,
             backend_slug=settings.active_backend_slug,
             vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
+            models_directory=_project_path(self.project_root, settings.models_directory),
         )
 
         return PlannedPreview(
@@ -189,7 +190,7 @@ class VideoFixieService:
         selected_output_preset = output_preset or preview_output_preset()
         job = build_test_segment_job(
             source_path=source_path,
-            work_dir=work_dir,
+            work_dir=_project_path(self.project_root, work_dir),
             profile=profile,
             segment=segment,
             device_index=selected_device,
@@ -199,6 +200,7 @@ class VideoFixieService:
             output_preset=selected_output_preset,
             backend_slug=settings.active_backend_slug,
             vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
+            models_directory=_project_path(self.project_root, settings.models_directory),
         )
 
         return PlannedPreview(
@@ -244,3 +246,8 @@ def _vapoursynth_adapter(active_backend_slug: str, environment: MachineEnvironme
         raise RuntimeError(f"vspipe is unavailable: {environment.vspipe.error}")
     python_path = environment.vapoursynth.path or "python"
     return VapourSynthAdapter(python_path=python_path, vspipe_path=environment.vspipe.path)
+
+
+def _project_path(project_root: Path, path: str | Path) -> Path:
+    value = Path(path)
+    return value if value.is_absolute() else project_root / value

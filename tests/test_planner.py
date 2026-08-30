@@ -5,7 +5,7 @@ from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
 from videofixie.backends.vapoursynth import VapourSynthAdapter
-from videofixie.backends.video2x import Video2XAdapter
+from videofixie.backends.video2x import Video2XAdapter, required_model_relative_paths
 from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 from videofixie.domain.jobs import PreviewRange, TestSegment, TestSegmentKind
 from videofixie.domain.output_presets import bundled_output_presets, preview_output_preset
@@ -17,6 +17,7 @@ class PlannerTest(unittest.TestCase):
     def test_build_preview_job_creates_inspectable_two_stage_plan(self) -> None:
         profile = bundled_profiles()[0]
         with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = _create_model_files(Path(tmp_dir), profile)
             job = build_preview_job(
                 source_path="samples/1.mp4",
                 work_dir=Path(tmp_dir),
@@ -25,6 +26,7 @@ class PlannerTest(unittest.TestCase):
                 device_index=0,
                 ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
                 video2x=Video2XAdapter("video2x"),
+                models_directory=models_dir,
             )
 
         self.assertEqual(len(job.stages), 2)
@@ -32,12 +34,16 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("-ss", job.stages[0].command.argv())
         self.assertIn("5.000", job.stages[0].command.argv())
         self.assertEqual(job.stages[1].command.argv()[0], "video2x")
+        self.assertEqual(job.stages[1].cwd, models_dir.parent)
+        self.assertTrue(Path(job.stages[1].command.argv()[2]).is_absolute())
+        self.assertTrue(Path(job.stages[1].command.argv()[4]).is_absolute())
         self.assertEqual(job.output_preset, preview_output_preset())
         self.assertTrue(job.output_path.name.endswith(".preview.mp4"))
 
     def test_build_test_segment_job_uses_segment_label_and_range(self) -> None:
         profile = bundled_profiles()[0]
         with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = _create_model_files(Path(tmp_dir), profile)
             job = build_test_segment_job(
                 source_path="samples/1.mp4",
                 work_dir=Path(tmp_dir),
@@ -46,6 +52,7 @@ class PlannerTest(unittest.TestCase):
                 device_index=0,
                 ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
                 video2x=Video2XAdapter("video2x"),
+                models_directory=models_dir,
             )
 
         self.assertIn("face-closeup", job.output_path.name)
@@ -56,6 +63,7 @@ class PlannerTest(unittest.TestCase):
         profile = bundled_profiles()[0]
         compact = next(preset for preset in bundled_output_presets() if preset.slug == "compact")
         with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = _create_model_files(Path(tmp_dir), profile)
             job = build_test_segment_job(
                 source_path="samples/1.mp4",
                 work_dir=Path(tmp_dir),
@@ -65,6 +73,7 @@ class PlannerTest(unittest.TestCase):
                 ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
                 video2x=Video2XAdapter("video2x"),
                 output_preset=compact,
+                models_directory=models_dir,
             )
 
         argv = job.stages[1].command.argv()
@@ -110,3 +119,28 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("core.bs.VideoSource", job.stages[1].generated_files[0].content)
         self.assertEqual(job.stages[2].label, "Encode and mux preview")
         self.assertIn("-map_metadata", job.stages[2].command.argv())
+
+    def test_build_test_segment_job_rejects_missing_video2x_model_files(self) -> None:
+        profile = bundled_profiles()[0]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = Path(tmp_dir) / "share" / "video2x" / "models"
+            with self.assertRaisesRegex(FileNotFoundError, "Video2X model files are missing"):
+                build_test_segment_job(
+                    source_path="samples/1.mp4",
+                    work_dir=Path(tmp_dir),
+                    profile=profile,
+                    segment=TestSegment("Preview", 0, 5, TestSegmentKind.CUSTOM),
+                    device_index=0,
+                    ffmpeg=FFmpegAdapter(ffmpeg_path="ffmpeg", ffprobe_path="ffprobe"),
+                    video2x=Video2XAdapter("video2x"),
+                    models_directory=models_dir,
+                )
+
+
+def _create_model_files(root: Path, profile) -> Path:
+    models_dir = root / "share" / "video2x" / "models"
+    for relative_path in required_model_relative_paths(profile):
+        path = models_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("model fixture\n", encoding="utf-8")
+    return models_dir

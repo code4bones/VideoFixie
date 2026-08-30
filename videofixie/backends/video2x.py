@@ -136,6 +136,54 @@ class Video2XAdapter:
         )
 
 
+def validate_model_files(profile: ProcessingProfile, models_directory: str | Path) -> None:
+    missing = missing_model_files(profile, models_directory)
+    if not missing:
+        return
+
+    missing_text = ", ".join(str(path) for path in missing)
+    raise FileNotFoundError(
+        f"Video2X model files are missing for profile {profile.slug}: {missing_text}. "
+        f"Models directory: {Path(models_directory)}"
+    )
+
+
+def missing_model_files(profile: ProcessingProfile, models_directory: str | Path) -> tuple[Path, ...]:
+    models_root = Path(models_directory)
+    return tuple(path for path in required_model_files(profile, models_root) if not path.exists())
+
+
+def required_model_files(profile: ProcessingProfile, models_directory: str | Path) -> tuple[Path, ...]:
+    models_root = Path(models_directory)
+    relative_paths = required_model_relative_paths(profile)
+    return tuple(models_root / path for path in relative_paths)
+
+
+def required_model_relative_paths(profile: ProcessingProfile) -> tuple[Path, ...]:
+    if profile.processor == "realcugan":
+        if profile.scale is None:
+            raise ValueError(f"RealCUGAN profile {profile.slug} must define a scale")
+        stem = f"up{profile.scale}x-{_realcugan_noise_suffix(profile.noise_level)}"
+        return (
+            Path("realcugan") / profile.model / f"{stem}.param",
+            Path("realcugan") / profile.model / f"{stem}.bin",
+        )
+
+    if profile.processor == "realesrgan":
+        if profile.scale is None:
+            raise ValueError(f"RealESRGAN profile {profile.slug} must define a scale")
+        stem = f"{profile.model}-x{profile.scale}"
+        return (
+            Path("realesrgan") / f"{stem}.param",
+            Path("realesrgan") / f"{stem}.bin",
+        )
+
+    if profile.processor == "libplacebo":
+        return (Path("libplacebo") / f"{profile.model}.glsl",)
+
+    return ()
+
+
 def validate_profile(capabilities: BackendCapabilities, profile: ProcessingProfile) -> None:
     processor = capabilities.processors.get(profile.processor)
     if processor is None:
@@ -149,6 +197,14 @@ def validate_profile(capabilities: BackendCapabilities, profile: ProcessingProfi
 
     if profile.noise_level is not None and not processor.supports_noise_level:
         raise ValueError(f"Processor {profile.processor} does not support noise level")
+
+
+def _realcugan_noise_suffix(noise_level: int | None) -> str:
+    if noise_level is None or noise_level == 0:
+        return "no-denoise"
+    if noise_level in (1, 2, 3):
+        return f"denoise{noise_level}x"
+    raise ValueError(f"Unsupported RealCUGAN noise level: {noise_level}")
 
 
 def parse_csv_items(value: str) -> tuple[str, ...]:

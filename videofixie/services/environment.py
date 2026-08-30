@@ -55,10 +55,12 @@ def discover_environment(
     vapoursynth_python_path: str | Path | None = None,
     vspipe_path: str | Path | None = None,
 ) -> MachineEnvironment:
-    root = Path(project_root)
+    root = Path(project_root).resolve()
     ffmpeg_status = _probe_tool("ffmpeg", ("-version",), configured_path=ffmpeg_path)
     ffprobe_status = _probe_tool("ffprobe", ("-version",), configured_path=ffprobe_path)
-    selected_video2x_path = str(video2x_path) if video2x_path else find_video2x_executable(root, video2x_candidates)
+    selected_video2x_path = (
+        str(_project_path(root, video2x_path)) if video2x_path else find_video2x_executable(root, video2x_candidates)
+    )
     video2x_status = _probe_video2x(selected_video2x_path)
     vapoursynth_status = _probe_vapoursynth_python(vapoursynth_python_path)
     selected_vspipe_path = _default_vspipe_path(vspipe_path, vapoursynth_python_path)
@@ -91,10 +93,10 @@ def discover_environment(
 
 
 def find_video2x_executable(project_root: str | Path = ".", candidates: tuple[str | Path, ...] = ()) -> str | None:
-    root = Path(project_root)
+    root = Path(project_root).resolve()
     paths = [
-        *(Path(candidate) for candidate in candidates),
-        root / "bin" / "Video2X-x86_64.AppImage",
+        *(_project_path(root, candidate) for candidate in candidates),
+        root / "bin" / "video2x",
     ]
 
     for path in paths:
@@ -102,6 +104,11 @@ def find_video2x_executable(project_root: str | Path = ".", candidates: tuple[st
             return str(path)
 
     return which("video2x")
+
+
+def _project_path(root: Path, path: str | Path) -> Path:
+    value = Path(path)
+    return value if value.is_absolute() else root / value
 
 
 def choose_preferred_gpu(devices: tuple[GpuDevice, ...], preferred_gpu_index: int | None = None) -> GpuDevice | None:

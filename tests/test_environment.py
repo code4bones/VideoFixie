@@ -20,14 +20,27 @@ class EnvironmentTest(unittest.TestCase):
         assert preferred is not None
         self.assertEqual(preferred.index, 7)
 
-    def test_find_video2x_executable_prefers_project_appimage(self) -> None:
+    def test_find_video2x_executable_prefers_project_binary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            executable = root / "bin" / "Video2X-x86_64.AppImage"
-            executable.parent.mkdir()
+            bin_dir = root / "bin"
+            executable = bin_dir / "video2x"
+            appimage = bin_dir / "Video2X-x86_64.AppImage"
+            bin_dir.mkdir()
             executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            appimage.write_text("#!/bin/sh\n", encoding="utf-8")
 
             self.assertEqual(find_video2x_executable(root), str(executable))
+
+    def test_find_video2x_executable_does_not_auto_detect_appimage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            appimage = root / "bin" / "Video2X-x86_64.AppImage"
+            appimage.parent.mkdir()
+            appimage.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            with patch("videofixie.services.environment.which", return_value=None):
+                self.assertIsNone(find_video2x_executable(root))
 
     def test_discover_environment_honors_configured_paths_and_gpu(self) -> None:
         capabilities = BackendCapabilities(

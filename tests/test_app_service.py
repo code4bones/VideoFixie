@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from videofixie.backends.video2x import required_model_relative_paths
 from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG
 from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
 from videofixie.domain.jobs import TestSegment
@@ -144,7 +145,7 @@ class VideoFixieServiceTest(unittest.TestCase):
         discover_environment.return_value = MachineEnvironment(
             ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
             ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
-            video2x=ToolStatus("video2x", "bin/Video2X-x86_64.AppImage", True, "6.4.0"),
+            video2x=ToolStatus("video2x", "/project/bin/video2x", True, "6.4.0"),
             video2x_capabilities=capabilities,
             preferred_gpu=capabilities.devices[0],
         )
@@ -159,9 +160,10 @@ class VideoFixieServiceTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
+            _create_model_files(Path(tmp_dir), bundled_profiles()[0])
             store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
             store.save(AppSettings())
-            plan = VideoFixieService(settings_store=store).plan_preview(
+            plan = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_preview(
                 "samples/1.mp4",
                 "cache/previews",
                 bundled_profiles()[0],
@@ -186,7 +188,7 @@ class VideoFixieServiceTest(unittest.TestCase):
         environment = MachineEnvironment(
             ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
             ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
-            video2x=ToolStatus("video2x", "bin/Video2X-x86_64.AppImage", True, "6.4.0"),
+            video2x=ToolStatus("video2x", "/project/bin/video2x", True, "6.4.0"),
             video2x_capabilities=capabilities,
             preferred_gpu=capabilities.devices[0],
         )
@@ -201,9 +203,10 @@ class VideoFixieServiceTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
+            _create_model_files(Path(tmp_dir), bundled_profiles()[0])
             store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
             store.save(AppSettings())
-            plan = VideoFixieService(settings_store=store).plan_preview_with_context(
+            plan = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_preview_with_context(
                 "samples/1.mp4",
                 "cache/previews",
                 bundled_profiles()[0],
@@ -216,3 +219,12 @@ class VideoFixieServiceTest(unittest.TestCase):
         self.assertEqual(plan.environment, environment)
         discover_environment.assert_not_called()
         probe.assert_not_called()
+
+
+def _create_model_files(root: Path, profile) -> Path:
+    models_dir = root / "share" / "video2x" / "models"
+    for relative_path in required_model_relative_paths(profile):
+        path = models_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("model fixture\n", encoding="utf-8")
+    return models_dir

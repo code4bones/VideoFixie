@@ -37,7 +37,7 @@ def bundled_profiles() -> tuple[ProcessingProfile, ...]:
             name="Balanced",
             summary="RealCUGAN x2 with mild noise processing.",
             processor="realcugan",
-            model="models-pro",
+            model="models-se",
             scale=2,
             noise_level=1,
         ),

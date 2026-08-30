@@ -67,6 +67,7 @@ class ProcessingStage:
     label: str
     command: PlannedCommand
     generated_files: tuple[GeneratedFile, ...] = ()
+    cwd: Path | None = None
 
 
 @dataclass(frozen=True)

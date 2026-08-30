@@ -104,12 +104,13 @@ class SubprocessJobRunner:
             if on_output is not None:
                 description = generated_file.description or "Generated file"
                 on_output(ProcessLogLine(stream="generated", text=f"{description}: {generated_file.path}"))
+        stage_cwd = stage.cwd if stage.cwd is not None else cwd
         return self.run_command(
             stage.command,
             cancellation_token=cancellation_token,
             on_output=on_output,
             on_progress=on_progress,
-            cwd=cwd,
+            cwd=stage_cwd,
         )
 
     def run_command(

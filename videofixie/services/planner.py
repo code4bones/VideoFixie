@@ -4,7 +4,7 @@ from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
 from videofixie.backends.vapoursynth import VapourSynthAdapter
-from videofixie.backends.video2x import Video2XAdapter
+from videofixie.backends.video2x import Video2XAdapter, validate_model_files
 from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 from videofixie.domain.capabilities import BackendCapabilities
 from videofixie.domain.jobs import PreviewRange, ProcessingJob, ProcessingStage, TestSegment
@@ -24,6 +24,7 @@ def build_preview_job(
     output_preset: OutputPreset | None = None,
     backend_slug: str = VIDEO2X_BACKEND_SLUG,
     vapoursynth: VapourSynthAdapter | None = None,
+    models_directory: str | Path | None = None,
 ) -> ProcessingJob:
     return build_test_segment_job(
         source_path=source_path,
@@ -41,6 +42,7 @@ def build_preview_job(
         output_preset=output_preset,
         backend_slug=backend_slug,
         vapoursynth=vapoursynth,
+        models_directory=models_directory,
     )
 
 
@@ -56,6 +58,7 @@ def build_test_segment_job(
     output_preset: OutputPreset | None = None,
     backend_slug: str = VIDEO2X_BACKEND_SLUG,
     vapoursynth: VapourSynthAdapter | None = None,
+    models_directory: str | Path | None = None,
 ) -> ProcessingJob:
     validate_profile_backend_compatibility(profile, backend_slug)
     source = Path(source_path)
@@ -76,21 +79,24 @@ def build_test_segment_job(
             raise ValueError("Video2X adapter is required for video2x backend")
         if device_index is None:
             raise ValueError("Device index is required for video2x backend")
+        video2x_models_directory = Path(models_directory or "share/video2x/models")
         upscale_command = video2x.build_upscale_command(
-            source_path=preview_source,
-            output_path=preview_output,
+            source_path=_absolute_path(preview_source),
+            output_path=_absolute_path(preview_output),
             profile=profile,
             output_preset=selected_output_preset,
             device_index=device_index,
             capabilities=capabilities,
         )
+        validate_model_files(profile, video2x_models_directory)
+        video2x_cwd = video2x_models_directory.parent
         return ProcessingJob(
             source_path=source,
             output_path=preview_output,
             profile=profile,
             stages=(
                 ProcessingStage(label=cut_command.label, command=cut_command),
-                ProcessingStage(label=upscale_command.label, command=upscale_command),
+                ProcessingStage(label=upscale_command.label, command=upscale_command, cwd=video2x_cwd),
             ),
             output_preset=selected_output_preset,
         )
@@ -148,3 +154,9 @@ def _slugify(value: str) -> str:
             chars.append("-")
             previous_dash = True
     return "".join(chars).strip("-") or "segment"
+
+
+def _absolute_path(path: Path) -> Path:
+    if path.is_absolute():
+        return path
+    return Path.cwd() / path

@@ -75,3 +75,19 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertTrue(any("clip.set_output()" in line for line in result.stdout))
         self.assertEqual(output[0].stream, "generated")
         self.assertIn("VapourSynth script", output[0].text)
+
+    def test_run_stage_uses_stage_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = Path(tmp_dir) / "share" / "video2x"
+            work_dir.mkdir(parents=True)
+            command = PlannedCommand(
+                sys.executable,
+                ("-c", "from pathlib import Path; print(Path.cwd())"),
+                "print cwd",
+            )
+            stage = ProcessingStage("print cwd", command, cwd=work_dir)
+
+            result = SubprocessJobRunner().run_stage(stage)
+
+        self.assertTrue(result.succeeded)
+        self.assertEqual(result.stdout, (str(work_dir),))

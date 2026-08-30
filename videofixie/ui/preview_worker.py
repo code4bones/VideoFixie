@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shlex import quote
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from videofixie.backends.vapoursynth import parse_progress_line as parse_vapoursynth_progress_line
 from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
-from videofixie.domain.jobs import JobProgress, ProcessingJob
+from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
 
 
@@ -31,7 +32,7 @@ class PreviewWorker(QObject):
             for stage in self.job.stages:
                 if self.cancellation_token.is_cancelled:
                     break
-                self.stageStarted.emit(stage.label, stage.command.display())
+                self.stageStarted.emit(stage.label, _stage_display(stage))
                 result = runner.run_stage(
                     stage,
                     cancellation_token=self.cancellation_token,
@@ -64,3 +65,10 @@ def successful_output_path(result: JobRunResult, expected_path: Path) -> Path | 
 
 def _parse_preview_progress_line(line: str) -> JobProgress | None:
     return parse_video2x_progress_line(line) or parse_vapoursynth_progress_line(line)
+
+
+def _stage_display(stage: ProcessingStage) -> str:
+    command = stage.command.display()
+    if stage.cwd is None:
+        return command
+    return f"cd {quote(str(stage.cwd))} && {command}"

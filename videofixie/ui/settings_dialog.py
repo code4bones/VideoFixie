@@ -75,7 +75,7 @@ class SettingsDialog(QDialog):
         self.video2x_group = QGroupBox("Video2X")
         video2x_form = QFormLayout(self.video2x_group)
         layout.addWidget(self.video2x_group)
-        video2x_form.addRow("Executable/AppImage", self._file_path_row(self.video2x_path_edit))
+        video2x_form.addRow("Executable", self._file_path_row(self.video2x_path_edit))
 
         self.gpu_combo = QComboBox()
         self.gpu_combo.addItem("Auto", None)
@@ -128,7 +128,7 @@ class SettingsDialog(QDialog):
             vspipe_path=_optional_text(self.vspipe_path_edit.text()),
             output_directory=_required_text(self.output_directory_edit.text(), "outputs"),
             cache_directory=_required_text(self.cache_directory_edit.text(), "cache"),
-            models_directory=_required_text(self.models_directory_edit.text(), "models"),
+            models_directory=_required_text(self.models_directory_edit.text(), AppSettings().models_directory),
             preferred_gpu_index=_optional_int(self.gpu_combo.currentData()),
             default_profile_slug=str(self.default_profile_combo.currentData()),
             default_output_preset_slug=str(self.default_output_combo.currentData()),

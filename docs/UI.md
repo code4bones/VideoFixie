@@ -179,17 +179,17 @@ Do not replace the raw backend message; retain it in the log.
 ## Settings
 Application settings should include:
 - active processing backend;
-- Video2X executable/AppImage path;
+- Video2X executable path;
 - FFmpeg/ffprobe paths or auto-detection;
 - preferred GPU;
 - cache directory;
 - output directory;
-- managed models directory;
+- managed models directory, defaulting to `./share/video2x/models`;
 - default processing profile;
 - default output preset;
 - cache cleanup policy.
 
-Backend-specific controls should be visible only for the selected backend. Video2X exposes its executable/AppImage path and preferred Vulkan GPU.
+Backend-specific controls should be visible only for the selected backend. Video2X exposes its executable path, managed models directory and preferred Vulkan GPU.
 VapourSynth exposes Python and `vspipe` paths for pip-installed runtime diagnostics and script-based preview execution. When VapourSynth is selected, the profile selector should move to a VapourSynth-compatible profile instead of leaving a Video2X-only profile selected.
 
 On first run, run a lightweight environment check and clearly show missing dependencies.

@@ -14,7 +14,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
         self.assertEqual(settings.output_directory, "outputs")
         self.assertEqual(settings.cache_directory, "cache")
-        self.assertEqual(settings.models_directory, "models")
+        self.assertEqual(settings.models_directory, "share/video2x/models")
 
     def test_settings_store_persists_paths_and_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -37,6 +37,11 @@ class SettingsTest(unittest.TestCase):
             store.save(settings)
 
             self.assertEqual(store.load(), settings)
+
+    def test_settings_load_migrates_legacy_models_default(self) -> None:
+        settings = AppSettings.from_dict({"models_directory": "models"})
+
+        self.assertEqual(settings.models_directory, "share/video2x/models")
 
     def test_settings_store_preserves_future_backend_slug(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

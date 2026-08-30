@@ -1,7 +1,17 @@
 import dataclasses
+import tempfile
 import unittest
+from pathlib import Path
 
-from videofixie.backends.video2x import parse_capabilities, parse_devices, parse_progress_line, parse_version, validate_profile
+from videofixie.backends.video2x import (
+    parse_capabilities,
+    parse_devices,
+    parse_progress_line,
+    parse_version,
+    required_model_relative_paths,
+    validate_model_files,
+    validate_profile,
+)
 from videofixie.domain.output_presets import preview_output_preset
 from videofixie.domain.profiles import bundled_profiles
 
@@ -72,7 +82,7 @@ class Video2XTest(unittest.TestCase):
 
         profile = bundled_profiles()[0]
         capabilities = parse_capabilities(HELP_TEXT, "Video2X version 6.4.0", DEVICES_TEXT)
-        command = Video2XAdapter("./bin/Video2X-x86_64.AppImage").build_upscale_command(
+        command = Video2XAdapter("./bin/video2x").build_upscale_command(
             "in.mp4",
             "out.mp4",
             profile,
@@ -81,10 +91,32 @@ class Video2XTest(unittest.TestCase):
             capabilities=capabilities,
         )
 
-        self.assertEqual(command.argv()[:6], ["./bin/Video2X-x86_64.AppImage", "-i", "in.mp4", "-o", "out.mp4", "-p"])
+        self.assertEqual(command.argv()[:6], ["./bin/video2x", "-i", "in.mp4", "-o", "out.mp4", "-p"])
         self.assertIn("--realcugan-model", command.argv())
         self.assertIn("models-se", command.argv())
-        self.assertTrue(command.display().startswith("./bin/Video2X-x86_64.AppImage"))
+        self.assertTrue(command.display().startswith("./bin/video2x"))
+
+    def test_required_model_paths_include_realcugan_noise_variant(self) -> None:
+        profile = next(profile for profile in bundled_profiles() if profile.slug == "balanced-realcugan-x2")
+
+        self.assertEqual(
+            required_model_relative_paths(profile),
+            (
+                Path("realcugan/models-se/up2x-denoise1x.param"),
+                Path("realcugan/models-se/up2x-denoise1x.bin"),
+            ),
+        )
+
+    def test_validate_model_files_rejects_missing_realcugan_variant(self) -> None:
+        profile = dataclasses.replace(bundled_profiles()[0], model="models-pro", noise_level=1)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = Path(tmp_dir) / "share" / "video2x" / "models"
+            available = models_dir / "realcugan" / "models-pro" / "up2x-denoise3x.param"
+            available.parent.mkdir(parents=True)
+            available.write_text("fixture\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "up2x-denoise1x.param"):
+                validate_model_files(profile, models_dir)
 
     def test_validate_profile_rejects_missing_model(self) -> None:
         capabilities = parse_capabilities(HELP_TEXT, "Video2X version 6.4.0", DEVICES_TEXT)

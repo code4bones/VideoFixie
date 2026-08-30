@@ -15,7 +15,7 @@ class AppSettings:
     vspipe_path: str | None = None
     output_directory: str = "outputs"
     cache_directory: str = "cache"
-    models_directory: str = "models"
+    models_directory: str = "share/video2x/models"
     preferred_gpu_index: int | None = None
     default_profile_slug: str = "natural-realcugan-x2"
     default_output_preset_slug: str = "preview"
@@ -30,6 +30,9 @@ class AppSettings:
         for key in values:
             if key in data:
                 values[key] = data[key]
+        models_directory = _required_text(values["models_directory"], defaults.models_directory)
+        if models_directory == "models":
+            models_directory = defaults.models_directory
         return cls(
             active_backend_slug=normalize_backend_slug(
                 _required_text(values["active_backend_slug"], defaults.active_backend_slug)
@@ -41,7 +44,7 @@ class AppSettings:
             vspipe_path=_optional_text(values["vspipe_path"]),
             output_directory=_required_text(values["output_directory"], defaults.output_directory),
             cache_directory=_required_text(values["cache_directory"], defaults.cache_directory),
-            models_directory=_required_text(values["models_directory"], defaults.models_directory),
+            models_directory=models_directory,
             preferred_gpu_index=_optional_int(values["preferred_gpu_index"]),
             default_profile_slug=_required_text(values["default_profile_slug"], defaults.default_profile_slug),
             default_output_preset_slug=_required_text(

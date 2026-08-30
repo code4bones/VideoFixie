@@ -75,7 +75,7 @@ Backends are selected through a small registry of processing backend descriptors
 - encode output.
 
 #### Video2X adapter
-- locate executable/AppImage;
+- locate executable;
 - read version;
 - list devices;
 - validate requested processor/model/scale combination;
@@ -149,7 +149,7 @@ Keep two kinds of configuration separate:
 - default output directory;
 - managed models directory.
 
-Machine configuration is persisted locally in the current working directory SQLite database. The default managed models directory is `./models`, not `$HOME`, so future model downloads stay under the project/user-selected workspace.
+Machine configuration is persisted locally in the current working directory SQLite database. The preferred local backend layout keeps executables under `./bin/` and shared backend data under `./share/`. The default managed Video2X models directory is `./share/video2x/models`, not `$HOME`, so future model downloads stay under the project/user-selected workspace. Video2X stages run from the parent directory of the configured models directory because Video2X 6.4 resolves model files relative to `models/...`.
 
 ### Processing profiles
 Portable restoration settings without machine-specific absolute paths or GPU indices.
