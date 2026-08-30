@@ -23,7 +23,8 @@ class VapourSynthTest(unittest.TestCase):
 
         script = build_preview_script("cache/previews/source.mp4", profile)
 
-        self.assertIn("core.bs.VideoSource('cache/previews/source.mp4')", script)
+        expected_source = Path("cache/previews/source.mp4").resolve(strict=False)
+        self.assertIn(f"core.bs.VideoSource({str(expected_source)!r})", script)
         self.assertIn("clip.width * 2", script)
         self.assertIn("core.resize.Lanczos", script)
         self.assertIn("clip.set_output()", script)

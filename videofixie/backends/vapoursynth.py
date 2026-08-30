@@ -70,7 +70,7 @@ class VapourSynthAdapter:
 def build_preview_script(source_path: str | Path, profile: ProcessingProfile) -> str:
     filter_name = _filter_name(profile)
     scale = profile.scale or 1
-    source_literal = repr(str(source_path))
+    source_literal = repr(str(Path(source_path).expanduser().resolve(strict=False)))
     return "\n".join(
         (
             "import vapoursynth as vs",
