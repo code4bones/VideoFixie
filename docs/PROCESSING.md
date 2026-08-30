@@ -261,6 +261,8 @@ even when the backend process exits with code 0, because the produced MP4 can be
 Each nominally completed Preview/Variant output is then passed through an FFmpeg decode validation
 stage before it is marked Ready or offered to the player. Decoder errors such as invalid H.264 NAL
 units or AAC bitstream errors must fail the tile and remain visible in the run log.
+If Video2X writes final encoder statistics and then remains alive without output, the runner should
+terminate the silent stage through the inactivity watchdog and keep the tile failed for inspection.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;

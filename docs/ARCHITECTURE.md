@@ -144,6 +144,9 @@ AI jobs must be diagnosable before they exit.
 Nominally successful media outputs are validated with an FFmpeg decode-to-null stage before the UI
 marks them ready for playback. This catches corrupt MP4/H.264/AAC files that exist on disk but would
 otherwise make QtMultimedia emit decoder errors directly to the console.
+Subprocess stages also have a conservative inactivity watchdog. If a backend process stops producing
+stdout/stderr while staying alive, the runner terminates it and records a runtime error instead of
+blocking the queue indefinitely.
 
 ## Configuration
 Keep two kinds of configuration separate:

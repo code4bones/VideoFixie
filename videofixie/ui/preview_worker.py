@@ -18,6 +18,8 @@ from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLi
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.run_logs import RunLogFile, create_run_directory
 
+BACKEND_INACTIVITY_TIMEOUT_SECONDS = 90.0
+
 
 class PreviewWorker(QObject):
     stageStarted = Signal(str, str)
@@ -51,7 +53,10 @@ class PreviewWorker(QObject):
                     },
                 )
                 self.outputReceived.emit(f"run_log: {run_log.path}")
-            runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+            runner = SubprocessJobRunner(
+                progress_parser=_parse_preview_progress_line,
+                inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+            )
             results = []
             for stage in self.job.stages:
                 if self.cancellation_token.is_cancelled:

@@ -15,7 +15,13 @@ from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLi
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.app import PlannedRelease
 from videofixie.services.run_logs import RunLogFile, create_run_directory
-from videofixie.ui.preview_worker import _job_details, _job_status, _parse_preview_progress_line, _stage_display
+from videofixie.ui.preview_worker import (
+    BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+    _job_details,
+    _job_status,
+    _parse_preview_progress_line,
+    _stage_display,
+)
 
 
 class ReleaseWorker(QObject):
@@ -47,7 +53,10 @@ class ReleaseWorker(QObject):
                 )
                 self.outputReceived.emit(f"run_log: {run_log.path}")
 
-            runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+            runner = SubprocessJobRunner(
+                progress_parser=_parse_preview_progress_line,
+                inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+            )
             results = []
             for stage in job.stages:
                 if self.cancellation_token.is_cancelled:

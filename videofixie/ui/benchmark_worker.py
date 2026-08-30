@@ -16,7 +16,12 @@ from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLi
 from videofixie.jobs.runtime_errors import apply_backend_runtime_error
 from videofixie.services.app import PlannedVideo2XBenchmark
 from videofixie.services.run_logs import RunLogFile, create_run_directory
-from videofixie.ui.preview_worker import _parse_preview_progress_line, _stage_display, successful_output_path
+from videofixie.ui.preview_worker import (
+    BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+    _parse_preview_progress_line,
+    _stage_display,
+    successful_output_path,
+)
 
 
 @dataclass(frozen=True)
@@ -55,7 +60,10 @@ class BenchmarkWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+            runner = SubprocessJobRunner(
+                progress_parser=_parse_preview_progress_line,
+                inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+            )
             if self.run_logs_root is not None:
                 self.run_dir = create_run_directory(self.run_logs_root, "variants")
                 self.outputReceived.emit(-1, f"run_log_dir: {self.run_dir}")
@@ -181,7 +189,10 @@ class BenchmarkWorker(QObject):
             self.outputReceived.emit(index, f"run_log: {variant_log.path}")
         job = planned_variant.preview.job
         job.output_path.parent.mkdir(parents=True, exist_ok=True)
-        runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
+        runner = SubprocessJobRunner(
+            progress_parser=_parse_preview_progress_line,
+            inactivity_timeout_seconds=BACKEND_INACTIVITY_TIMEOUT_SECONDS,
+        )
         stage_results = []
         variant_error: str | None = None
         stages = job.stages[1:] if skip_shared_cut else job.stages

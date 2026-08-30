@@ -63,9 +63,15 @@ class CancellationToken:
 
 
 class SubprocessJobRunner:
-    def __init__(self, progress_parser: ProgressParser | None = None, terminate_grace_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        progress_parser: ProgressParser | None = None,
+        terminate_grace_seconds: float = 2.0,
+        inactivity_timeout_seconds: float | None = None,
+    ) -> None:
         self.progress_parser = progress_parser
         self.terminate_grace_seconds = terminate_grace_seconds
+        self.inactivity_timeout_seconds = inactivity_timeout_seconds
 
     def run_job(
         self,
@@ -125,10 +131,12 @@ class SubprocessJobRunner:
     ) -> StageRunResult:
         token = cancellation_token or CancellationToken()
         start_time = time.monotonic()
+        last_output_time = start_time
         stdout: list[str] = []
         stderr: list[str] = []
         progress_events: list[JobProgress] = []
         output_queue: queue.Queue[ProcessLogLine | None] = queue.Queue()
+        runtime_error: str | None = None
 
         process = subprocess.Popen(
             command.argv(),
@@ -157,12 +165,23 @@ class SubprocessJobRunner:
             try:
                 item = output_queue.get(timeout=0.05)
             except queue.Empty:
+                if (
+                    runtime_error is None
+                    and self.inactivity_timeout_seconds is not None
+                    and process.poll() is None
+                    and time.monotonic() - last_output_time >= self.inactivity_timeout_seconds
+                ):
+                    runtime_error = f"Process produced no output for {self.inactivity_timeout_seconds:.0f}s"
+                    if on_output is not None:
+                        on_output(ProcessLogLine(stream="runtime", text=runtime_error))
+                    _terminate_process(process, self.terminate_grace_seconds)
                 continue
 
             if item is None:
                 open_streams -= 1
                 continue
 
+            last_output_time = time.monotonic()
             if item.stream == "stdout":
                 stdout.append(item.text)
             else:
@@ -193,6 +212,7 @@ class SubprocessJobRunner:
             progress=tuple(progress_events),
             cancelled=cancelled,
             duration_seconds=duration,
+            runtime_error=runtime_error,
         )
 
 

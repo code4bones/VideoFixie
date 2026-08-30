@@ -54,6 +54,22 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertFalse(result.succeeded)
         self.assertIn("started", result.stdout)
 
+    def test_run_command_times_out_after_output_inactivity(self) -> None:
+        command = PlannedCommand(
+            sys.executable,
+            ("-c", "import time; print('started', flush=True); time.sleep(5)"),
+            "silent command",
+        )
+        output = []
+
+        result = SubprocessJobRunner(inactivity_timeout_seconds=0.2).run_command(command, on_output=output.append)
+
+        self.assertFalse(result.succeeded)
+        self.assertIsNotNone(result.runtime_error)
+        self.assertIn("no output", result.runtime_error or "")
+        self.assertIn("started", result.stdout)
+        self.assertTrue(any(line.stream == "runtime" for line in output))
+
     def test_stage_runtime_error_marks_result_unsuccessful(self) -> None:
         command = PlannedCommand(sys.executable, ("-c", "pass"), "runtime failed")
         result = StageRunResult("runtime failed", command, exit_code=0, runtime_error="backend failed")
