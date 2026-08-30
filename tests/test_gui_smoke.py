@@ -291,6 +291,44 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertTrue(dialog.video2x_group.isHidden())
         self.assertFalse(dialog.vapoursynth_group.isHidden())
 
+    def test_vapoursynth_backend_selects_compatible_profile(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.domain.settings import AppSettings
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", None, False, error="Executable not found"),
+            video2x_capabilities=None,
+            preferred_gpu=None,
+            vapoursynth=ToolStatus("vapoursynth", "/venv/bin/python", True, "VapourSynth R79"),
+            vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VSPipe R79"),
+        )
+
+        class FakeService:
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def load_settings(self):
+                return AppSettings(active_backend_slug=VAPOURSYNTH_BACKEND_SLUG)
+
+        window = MainWindow(service=FakeService())
+        app.processEvents()
+
+        self.assertEqual(window.profile_combo.currentData(), "vapoursynth-lanczos-x2")
+
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

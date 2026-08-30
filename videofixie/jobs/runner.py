@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from videofixie.domain.commands import PlannedCommand
-from videofixie.domain.jobs import JobProgress, ProcessingJob
+from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
 
 ProgressParser = Callable[[str], JobProgress | None]
 OutputCallback = Callable[["ProcessLogLine"], None]
@@ -77,8 +77,8 @@ class SubprocessJobRunner:
         token = cancellation_token or CancellationToken()
 
         for stage in job.stages:
-            result = self.run_command(
-                stage.command,
+            result = self.run_stage(
+                stage,
                 cancellation_token=token,
                 on_output=on_output,
                 on_progress=on_progress,
@@ -89,6 +89,28 @@ class SubprocessJobRunner:
                 return JobRunResult(stages=tuple(results), cancelled=result.cancelled)
 
         return JobRunResult(stages=tuple(results), cancelled=token.is_cancelled)
+
+    def run_stage(
+        self,
+        stage: ProcessingStage,
+        cancellation_token: CancellationToken | None = None,
+        on_output: OutputCallback | None = None,
+        on_progress: ProgressCallback | None = None,
+        cwd: str | Path | None = None,
+    ) -> StageRunResult:
+        for generated_file in stage.generated_files:
+            generated_file.path.parent.mkdir(parents=True, exist_ok=True)
+            generated_file.path.write_text(generated_file.content, encoding="utf-8")
+            if on_output is not None:
+                description = generated_file.description or "Generated file"
+                on_output(ProcessLogLine(stream="generated", text=f"{description}: {generated_file.path}"))
+        return self.run_command(
+            stage.command,
+            cancellation_token=cancellation_token,
+            on_output=on_output,
+            on_progress=on_progress,
+            cwd=cwd,
+        )
 
     def run_command(
         self,

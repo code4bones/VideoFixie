@@ -169,7 +169,7 @@ Restoration profiles control AI/model/scale/noise behavior. Output presets contr
 Profiles also declare compatible processing backends. The first bundled profiles target Video2X; future VapourSynth profiles should be explicit rather than being routed through Video2X by accident.
 
 ## VapourSynth notes
-VapourSynth is tracked as a future backend, not as a Video2X replacement inside the same adapter. On Linux, prefer detecting an installed Python/VapourSynth runtime and `vspipe` path. The preferred install path for VideoFixie is the official pip flow:
+VapourSynth is tracked as its own backend, not as a Video2X replacement inside the same adapter. On Linux, prefer detecting an installed Python/VapourSynth runtime and `vspipe` path. The preferred install path for VideoFixie is the official pip flow:
 
 ```text
 pip install vapoursynth
@@ -179,6 +179,8 @@ vapoursynth config
 Reference: `https://vapoursynth.com/doc/installation.html`
 
 Windows portable archives are useful as references but should not be treated as a Linux runtime.
+
+The first runnable VapourSynth preview profiles use BestSource for decode and built-in resize filters such as Lanczos/Bicubic. They are baseline comparison profiles, not AI restoration profiles. External AI plugins and model parameters must be introduced only after their capabilities are detected and documented.
 
 ## Output resolution
 Do not force every source to 1920x1080.

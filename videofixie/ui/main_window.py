@@ -309,10 +309,13 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        old_backend = self.settings.active_backend_slug
         self.settings = dialog.settings()
         if hasattr(self.service, "save_settings"):
             self.service.save_settings(self.settings)
         self._apply_settings_defaults_to_controls()
+        if old_backend != self.settings.active_backend_slug:
+            self._select_first_compatible_profile()
         self._load_environment()
         self.plan_preview()
 
@@ -409,6 +412,9 @@ class MainWindow(QMainWindow):
         ]
         for index, stage in enumerate(plan.job.stages, start=1):
             lines.extend(["", f"Stage {index}: {stage.label}", stage.command.display()])
+            for generated_file in stage.generated_files:
+                description = generated_file.description or "Generated file"
+                lines.extend(["", f"{description}: {generated_file.path}", generated_file.content.rstrip()])
         self.command_text.setPlainText("\n".join(lines))
         self._refresh_properties_dialog()
 
@@ -980,6 +986,18 @@ class MainWindow(QMainWindow):
     def _apply_settings_defaults_to_controls(self) -> None:
         self._select_profile_slug(self.settings.default_profile_slug)
         self._select_output_preset_slug(self.settings.default_output_preset_slug)
+        self._select_first_compatible_profile()
+
+    def _select_first_compatible_profile(self) -> None:
+        profile = self._selected_profile()
+        if profile.supports_backend(self.settings.active_backend_slug):
+            return
+        for candidate in self.profiles:
+            if candidate.supports_backend(self.settings.active_backend_slug):
+                self._select_profile_slug(candidate.slug)
+                self.preview_status.setText(f"Selected compatible profile: {candidate.name}")
+                return
+        self.preview_status.setText(f"No profile is compatible with backend: {self.settings.active_backend_slug}")
 
     def _refresh_properties_dialog(self) -> None:
         if self.properties_dialog is None:

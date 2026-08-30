@@ -64,7 +64,7 @@ Suggested objects:
 ### Backend adapters
 Backend-specific capability discovery and command construction.
 
-Backends are selected through a small registry of processing backend descriptors. The first execution backend is Video2X. VapourSynth is discoverable as a future backend through Python/vspipe diagnostics, but processing plans must not route profiles through it until a VapourSynth planner exists.
+Backends are selected through a small registry of processing backend descriptors. The first execution backend is Video2X. VapourSynth is available for script-based preview pipelines through Python/vspipe diagnostics and explicit VapourSynth-compatible profiles. Video2X-only profiles must not be routed through VapourSynth.
 
 #### FFmpeg adapter
 - locate `ffmpeg` / `ffprobe`;

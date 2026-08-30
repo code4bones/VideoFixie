@@ -24,7 +24,7 @@ def bundled_processing_backends() -> tuple[ProcessingBackendDescriptor, ...]:
         ProcessingBackendDescriptor(
             slug=VAPOURSYNTH_BACKEND_SLUG,
             name="VapourSynth",
-            summary="VapourSynth Python/vspipe runtime for future script-based restoration pipelines.",
+            summary="VapourSynth Python/vspipe backend for script-based preview pipelines.",
         ),
     )
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG
+from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 
 
 @dataclass(frozen=True)
@@ -50,5 +50,25 @@ def bundled_profiles() -> tuple[ProcessingProfile, ...]:
             scale=4,
             noise_level=None,
             experimental=True,
+        ),
+        ProcessingProfile(
+            slug="vapoursynth-lanczos-x2",
+            name="VapourSynth Lanczos",
+            summary="BestSource decode with built-in Lanczos x2 resize. No AI model or denoise is applied.",
+            processor="vapoursynth-resize",
+            model="builtin-lanczos",
+            scale=2,
+            noise_level=None,
+            compatible_backend_slugs=(VAPOURSYNTH_BACKEND_SLUG,),
+        ),
+        ProcessingProfile(
+            slug="vapoursynth-bicubic-x2",
+            name="VapourSynth Bicubic",
+            summary="BestSource decode with built-in Bicubic x2 resize for a softer baseline comparison.",
+            processor="vapoursynth-resize",
+            model="builtin-bicubic",
+            scale=2,
+            noise_level=None,
+            compatible_backend_slugs=(VAPOURSYNTH_BACKEND_SLUG,),
         ),
     )

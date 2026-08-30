@@ -2,9 +2,12 @@ import sys
 import threading
 import time
 import unittest
+import tempfile
+from pathlib import Path
 
 from videofixie.backends.video2x import parse_progress_line
 from videofixie.domain.commands import PlannedCommand
+from videofixie.domain.jobs import GeneratedFile, ProcessingStage
 from videofixie.jobs.runner import CancellationToken, SubprocessJobRunner
 
 
@@ -50,3 +53,25 @@ class SubprocessJobRunnerTest(unittest.TestCase):
         self.assertTrue(result.cancelled)
         self.assertFalse(result.succeeded)
         self.assertIn("started", result.stdout)
+
+    def test_run_stage_writes_generated_files_before_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            generated_path = Path(tmp_dir) / "script.vpy"
+            command = PlannedCommand(
+                sys.executable,
+                ("-c", f"from pathlib import Path; print(Path({str(generated_path)!r}).read_text())"),
+                "read generated file",
+            )
+            stage = ProcessingStage(
+                "read generated file",
+                command,
+                generated_files=(GeneratedFile(generated_path, "clip.set_output()\\n", "VapourSynth script"),),
+            )
+            output = []
+
+            result = SubprocessJobRunner().run_stage(stage, on_output=output.append)
+
+        self.assertTrue(result.succeeded)
+        self.assertTrue(any("clip.set_output()" in line for line in result.stdout))
+        self.assertEqual(output[0].stream, "generated")
+        self.assertIn("VapourSynth script", output[0].text)

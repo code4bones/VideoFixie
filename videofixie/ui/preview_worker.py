@@ -4,7 +4,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from videofixie.backends.video2x import parse_progress_line
+from videofixie.backends.vapoursynth import parse_progress_line as parse_vapoursynth_progress_line
+from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
 from videofixie.domain.jobs import JobProgress, ProcessingJob
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
 
@@ -25,14 +26,14 @@ class PreviewWorker(QObject):
     def run(self) -> None:
         try:
             self.job.output_path.parent.mkdir(parents=True, exist_ok=True)
-            runner = SubprocessJobRunner(progress_parser=parse_progress_line)
+            runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
             results = []
             for stage in self.job.stages:
                 if self.cancellation_token.is_cancelled:
                     break
                 self.stageStarted.emit(stage.label, stage.command.display())
-                result = runner.run_command(
-                    stage.command,
+                result = runner.run_stage(
+                    stage,
                     cancellation_token=self.cancellation_token,
                     on_output=self._handle_output,
                     on_progress=self._handle_progress,
@@ -59,3 +60,7 @@ def successful_output_path(result: JobRunResult, expected_path: Path) -> Path | 
     if result.succeeded and expected_path.exists():
         return expected_path
     return None
+
+
+def _parse_preview_progress_line(line: str) -> JobProgress | None:
+    return parse_video2x_progress_line(line) or parse_vapoursynth_progress_line(line)

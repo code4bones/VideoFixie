@@ -56,9 +56,17 @@ class TestSegment:
 
 
 @dataclass(frozen=True)
+class GeneratedFile:
+    path: Path
+    content: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class ProcessingStage:
     label: str
     command: PlannedCommand
+    generated_files: tuple[GeneratedFile, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from videofixie.backends.ffmpeg import FFmpegAdapter
+from videofixie.backends.vapoursynth import VapourSynthAdapter
 from videofixie.backends.video2x import Video2XAdapter
 from videofixie.domain.backends import (
+    VAPOURSYNTH_BACKEND_SLUG,
     VIDEO2X_BACKEND_SLUG,
     ProcessingBackendDescriptor,
     bundled_processing_backends,
@@ -129,22 +131,14 @@ class VideoFixieService:
         output_preset: OutputPreset | None = None,
     ) -> PlannedPreview:
         settings = self.load_settings()
-        _ensure_implemented_backend(settings.active_backend_slug)
         environment = self.discover_environment()
         if not environment.ffmpeg.available or environment.ffmpeg.path is None:
             raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
         if not environment.ffprobe.available or environment.ffprobe.path is None:
             raise RuntimeError(f"ffprobe is unavailable: {environment.ffprobe.error}")
-        if not environment.video2x.available or environment.video2x.path is None:
-            raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
-
-        selected_device = device_index
-        if selected_device is None:
-            if environment.preferred_gpu is None:
-                raise RuntimeError("No Video2X Vulkan device discovered")
-            selected_device = environment.preferred_gpu.index
 
         media = self.analyze_source(source_path)
+        selected_device = _selected_video2x_device(settings.active_backend_slug, environment, device_index)
         selected_output_preset = output_preset or preview_output_preset()
         job = build_test_segment_job(
             source_path=source_path,
@@ -153,10 +147,11 @@ class VideoFixieService:
             segment=segment,
             device_index=selected_device,
             ffmpeg=FFmpegAdapter(ffmpeg_path=environment.ffmpeg.path, ffprobe_path=environment.ffprobe.path),
-            video2x=Video2XAdapter(environment.video2x.path),
+            video2x=_video2x_adapter(settings.active_backend_slug, environment),
             capabilities=environment.video2x_capabilities,
             output_preset=selected_output_preset,
             backend_slug=settings.active_backend_slug,
+            vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
         )
 
         return PlannedPreview(
@@ -180,20 +175,12 @@ class VideoFixieService:
         output_preset: OutputPreset | None = None,
     ) -> PlannedPreview:
         settings = self.load_settings()
-        _ensure_implemented_backend(settings.active_backend_slug)
         if not environment.ffmpeg.available or environment.ffmpeg.path is None:
             raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
         if not environment.ffprobe.available or environment.ffprobe.path is None:
             raise RuntimeError(f"ffprobe is unavailable: {environment.ffprobe.error}")
-        if not environment.video2x.available or environment.video2x.path is None:
-            raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
 
-        selected_device = device_index
-        if selected_device is None:
-            if environment.preferred_gpu is None:
-                raise RuntimeError("No Video2X Vulkan device discovered")
-            selected_device = environment.preferred_gpu.index
-
+        selected_device = _selected_video2x_device(settings.active_backend_slug, environment, device_index)
         selected_output_preset = output_preset or preview_output_preset()
         job = build_test_segment_job(
             source_path=source_path,
@@ -202,10 +189,11 @@ class VideoFixieService:
             segment=segment,
             device_index=selected_device,
             ffmpeg=FFmpegAdapter(ffmpeg_path=environment.ffmpeg.path, ffprobe_path=environment.ffprobe.path),
-            video2x=Video2XAdapter(environment.video2x.path),
+            video2x=_video2x_adapter(settings.active_backend_slug, environment),
             capabilities=environment.video2x_capabilities,
             output_preset=selected_output_preset,
             backend_slug=settings.active_backend_slug,
+            vapoursynth=_vapoursynth_adapter(settings.active_backend_slug, environment),
         )
 
         return PlannedPreview(
@@ -218,6 +206,36 @@ class VideoFixieService:
         )
 
 
-def _ensure_implemented_backend(active_backend_slug: str) -> None:
+def _selected_video2x_device(
+    active_backend_slug: str,
+    environment: MachineEnvironment,
+    device_index: int | None,
+) -> int | None:
     if active_backend_slug != VIDEO2X_BACKEND_SLUG:
-        raise RuntimeError(f"Processing backend is not implemented yet: {active_backend_slug}")
+        return None
+    if not environment.video2x.available or environment.video2x.path is None:
+        raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
+    if device_index is not None:
+        return device_index
+    if environment.preferred_gpu is None:
+        raise RuntimeError("No Video2X Vulkan device discovered")
+    return environment.preferred_gpu.index
+
+
+def _video2x_adapter(active_backend_slug: str, environment: MachineEnvironment) -> Video2XAdapter | None:
+    if active_backend_slug != VIDEO2X_BACKEND_SLUG:
+        return None
+    if environment.video2x.path is None:
+        raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
+    return Video2XAdapter(environment.video2x.path)
+
+
+def _vapoursynth_adapter(active_backend_slug: str, environment: MachineEnvironment) -> VapourSynthAdapter | None:
+    if active_backend_slug != VAPOURSYNTH_BACKEND_SLUG:
+        if active_backend_slug != VIDEO2X_BACKEND_SLUG:
+            raise RuntimeError(f"Unknown processing backend: {active_backend_slug}")
+        return None
+    if not environment.vspipe.available or environment.vspipe.path is None:
+        raise RuntimeError(f"vspipe is unavailable: {environment.vspipe.error}")
+    python_path = environment.vapoursynth.path or "python"
+    return VapourSynthAdapter(python_path=python_path, vspipe_path=environment.vspipe.path)

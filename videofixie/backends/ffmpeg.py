@@ -7,6 +7,7 @@ from shutil import which
 
 from videofixie.domain.commands import PlannedCommand
 from videofixie.domain.media import MediaInfo
+from videofixie.domain.output_presets import OutputPreset
 
 
 class FFmpegAdapter:
@@ -76,4 +77,41 @@ class FFmpegAdapter:
                 str(output_path),
             ),
             label="Create preview source",
+        )
+
+    def build_encode_mux_command(
+        self,
+        video_source_path: str | Path,
+        stream_source_path: str | Path,
+        output_path: str | Path,
+        output_preset: OutputPreset,
+    ) -> PlannedCommand:
+        args: list[str] = [
+            "-y",
+            "-i",
+            str(video_source_path),
+            "-i",
+            str(stream_source_path),
+            "-map",
+            "0:v:0",
+        ]
+        if output_preset.preserve_audio:
+            args.extend(("-map", "1:a?"))
+        if output_preset.preserve_subtitles:
+            args.extend(("-map", "1:s?"))
+        args.extend(("-c:v", output_preset.codec))
+        for encoder_option in output_preset.encoder_options():
+            key, value = encoder_option.split("=", 1)
+            args.extend((f"-{key}", value))
+        if output_preset.preserve_audio:
+            args.extend(("-c:a", "copy"))
+        if output_preset.preserve_subtitles:
+            args.extend(("-c:s", "copy"))
+        if output_preset.preserve_metadata:
+            args.extend(("-map_metadata", "1"))
+        args.extend(("-shortest", str(output_path)))
+        return PlannedCommand(
+            program=self.ffmpeg_path,
+            args=tuple(args),
+            label="Encode and mux preview",
         )
