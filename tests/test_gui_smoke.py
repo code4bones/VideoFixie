@@ -166,7 +166,7 @@ class GuiSmokeTest(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
 
         from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
-        from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG, bundled_processing_backends
+        from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG, bundled_processing_backends
         from videofixie.domain.jobs import ProcessingJob
         from videofixie.domain.media import MediaInfo
         from videofixie.domain.profiles import bundled_profiles
@@ -265,6 +265,13 @@ class GuiSmokeTest(unittest.TestCase):
 
         self.assertEqual(dialog.backend_combo.currentData(), VIDEO2X_BACKEND_SLUG)
         self.assertFalse(dialog.video2x_group.isHidden())
+        self.assertTrue(dialog.vapoursynth_group.isHidden())
+
+        dialog.backend_combo.setCurrentIndex(dialog.backend_combo.findData(VAPOURSYNTH_BACKEND_SLUG))
+        app.processEvents()
+
+        self.assertTrue(dialog.video2x_group.isHidden())
+        self.assertFalse(dialog.vapoursynth_group.isHidden())
 
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -62,6 +62,8 @@ class VideoFixieService:
             ffprobe_path=settings.ffprobe_path,
             video2x_path=settings.video2x_path,
             preferred_gpu_index=settings.preferred_gpu_index,
+            vapoursynth_python_path=settings.vapoursynth_python_path,
+            vspipe_path=settings.vspipe_path,
         )
 
     def analyze_source(self, source_path: str | Path) -> MediaInfo:

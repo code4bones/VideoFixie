@@ -184,5 +184,6 @@ Application settings should include:
 - cache cleanup policy.
 
 Backend-specific controls should be visible only for the selected backend. Initially, Video2X exposes its executable/AppImage path and preferred Vulkan GPU.
+VapourSynth exposes Python and `vspipe` paths for pip-installed runtime diagnostics before script execution is implemented.
 
 On first run, run a lightweight environment check and clearly show missing dependencies.

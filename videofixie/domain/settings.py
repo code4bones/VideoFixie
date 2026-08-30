@@ -11,6 +11,8 @@ class AppSettings:
     ffmpeg_path: str | None = None
     ffprobe_path: str | None = None
     video2x_path: str | None = None
+    vapoursynth_python_path: str | None = None
+    vspipe_path: str | None = None
     output_directory: str = "outputs"
     cache_directory: str = "cache"
     models_directory: str = "models"
@@ -35,6 +37,8 @@ class AppSettings:
             ffmpeg_path=_optional_text(values["ffmpeg_path"]),
             ffprobe_path=_optional_text(values["ffprobe_path"]),
             video2x_path=_optional_text(values["video2x_path"]),
+            vapoursynth_python_path=_optional_text(values["vapoursynth_python_path"]),
+            vspipe_path=_optional_text(values["vspipe_path"]),
             output_directory=_required_text(values["output_directory"], defaults.output_directory),
             cache_directory=_required_text(values["cache_directory"], defaults.cache_directory),
             models_directory=_required_text(values["models_directory"], defaults.models_directory),

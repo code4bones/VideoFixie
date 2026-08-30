@@ -64,7 +64,7 @@ Suggested objects:
 ### Backend adapters
 Backend-specific capability discovery and command construction.
 
-Backends are selected through a small registry of processing backend descriptors. The first registered backend is Video2X. Future backends such as VapourSynth should add their own adapter/settings page while keeping source analysis, preview segments, output presets, jobs, logs and progress in the shared VideoFixie workflow.
+Backends are selected through a small registry of processing backend descriptors. The first execution backend is Video2X. VapourSynth is discoverable as a future backend through Python/vspipe diagnostics, but processing plans must not route profiles through it until a VapourSynth planner exists.
 
 #### FFmpeg adapter
 - locate `ffmpeg` / `ffprobe`;
@@ -142,6 +142,7 @@ Keep two kinds of configuration separate:
 ### Machine configuration
 - active processing backend;
 - Video2X executable path;
+- VapourSynth Python/vspipe paths;
 - ffmpeg/ffprobe paths;
 - preferred GPU;
 - cache directory;

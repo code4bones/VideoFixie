@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 
 VIDEO2X_BACKEND_SLUG = "video2x"
+VAPOURSYNTH_BACKEND_SLUG = "vapoursynth"
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,11 @@ def bundled_processing_backends() -> tuple[ProcessingBackendDescriptor, ...]:
             slug=VIDEO2X_BACKEND_SLUG,
             name="Video2X",
             summary="Video2X 6.x subprocess backend for RealCUGAN, RealESRGAN, libplacebo and RIFE.",
+        ),
+        ProcessingBackendDescriptor(
+            slug=VAPOURSYNTH_BACKEND_SLUG,
+            name="VapourSynth",
+            summary="VapourSynth Python/vspipe runtime for future script-based restoration pipelines.",
         ),
     )
 

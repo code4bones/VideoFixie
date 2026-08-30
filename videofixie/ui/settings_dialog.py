@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from videofixie.domain.backends import (
+    VAPOURSYNTH_BACKEND_SLUG,
     VIDEO2X_BACKEND_SLUG,
     ProcessingBackendDescriptor,
     bundled_processing_backends,
@@ -59,6 +60,8 @@ class SettingsDialog(QDialog):
         self.ffmpeg_path_edit = QLineEdit(settings.ffmpeg_path or "")
         self.ffprobe_path_edit = QLineEdit(settings.ffprobe_path or "")
         self.video2x_path_edit = QLineEdit(settings.video2x_path or "")
+        self.vapoursynth_python_path_edit = QLineEdit(settings.vapoursynth_python_path or "")
+        self.vspipe_path_edit = QLineEdit(settings.vspipe_path or "")
         self.output_directory_edit = QLineEdit(settings.output_directory)
         self.cache_directory_edit = QLineEdit(settings.cache_directory)
         self.models_directory_edit = QLineEdit(settings.models_directory)
@@ -85,6 +88,12 @@ class SettingsDialog(QDialog):
         if gpu_index >= 0:
             self.gpu_combo.setCurrentIndex(gpu_index)
         video2x_form.addRow("Preferred GPU", self.gpu_combo)
+
+        self.vapoursynth_group = QGroupBox("VapourSynth")
+        vapoursynth_form = QFormLayout(self.vapoursynth_group)
+        layout.addWidget(self.vapoursynth_group)
+        vapoursynth_form.addRow("Python", self._file_path_row(self.vapoursynth_python_path_edit))
+        vapoursynth_form.addRow("vspipe", self._file_path_row(self.vspipe_path_edit))
 
         self.default_profile_combo = QComboBox()
         for profile in profiles:
@@ -115,6 +124,8 @@ class SettingsDialog(QDialog):
             ffmpeg_path=_optional_text(self.ffmpeg_path_edit.text()),
             ffprobe_path=_optional_text(self.ffprobe_path_edit.text()),
             video2x_path=_optional_text(self.video2x_path_edit.text()),
+            vapoursynth_python_path=_optional_text(self.vapoursynth_python_path_edit.text()),
+            vspipe_path=_optional_text(self.vspipe_path_edit.text()),
             output_directory=_required_text(self.output_directory_edit.text(), "outputs"),
             cache_directory=_required_text(self.cache_directory_edit.text(), "cache"),
             models_directory=_required_text(self.models_directory_edit.text(), "models"),
@@ -124,7 +135,9 @@ class SettingsDialog(QDialog):
         )
 
     def _update_backend_controls(self) -> None:
-        self.video2x_group.setVisible(self.backend_combo.currentData() == VIDEO2X_BACKEND_SLUG)
+        active_backend = self.backend_combo.currentData()
+        self.video2x_group.setVisible(active_backend == VIDEO2X_BACKEND_SLUG)
+        self.vapoursynth_group.setVisible(active_backend == VAPOURSYNTH_BACKEND_SLUG)
 
     def _file_path_row(self, line_edit: QLineEdit) -> QWidget:
         return self._path_row(line_edit, browse=lambda: self._browse_file(line_edit))

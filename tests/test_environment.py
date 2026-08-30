@@ -62,3 +62,34 @@ class EnvironmentTest(unittest.TestCase):
         self.assertIsNotNone(env.preferred_gpu)
         assert env.preferred_gpu is not None
         self.assertEqual(env.preferred_gpu.index, 7)
+
+    def test_discover_environment_reports_vapoursynth_runtime(self) -> None:
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={},
+            devices=(),
+        )
+
+        class Completed:
+            stdout = "vspipe R79\n"
+
+        with (
+            patch("videofixie.services.environment.subprocess.run", return_value=Completed()),
+            patch("videofixie.services.environment.Video2XAdapter.version", return_value="6.4.0"),
+            patch("videofixie.services.environment.Video2XAdapter.capabilities", return_value=capabilities),
+            patch("videofixie.services.environment.VapourSynthAdapter.version", return_value="VapourSynth R79"),
+        ):
+            env = discover_environment(
+                ".",
+                video2x_path="/custom/video2x",
+                vapoursynth_python_path="/custom/python",
+                vspipe_path="/custom/vspipe",
+            )
+
+        self.assertEqual(env.vapoursynth.path, "/custom/python")
+        self.assertTrue(env.vapoursynth.available)
+        self.assertEqual(env.vapoursynth.version, "VapourSynth R79")
+        self.assertEqual(env.vspipe.path, "/custom/vspipe")
+        self.assertTrue(env.vspipe.available)
+        self.assertEqual(env.vspipe.version, "vspipe R79")

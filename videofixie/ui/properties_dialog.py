@@ -44,10 +44,14 @@ class PropertiesDialog(QDialog):
         self.ffprobe_label = QLabel("-")
         self.video2x_label = QLabel("-")
         self.gpu_label = QLabel("-")
+        self.vapoursynth_label = QLabel("-")
+        self.vspipe_label = QLabel("-")
         environment_layout.addRow("FFmpeg", self.ffmpeg_label)
         environment_layout.addRow("FFprobe", self.ffprobe_label)
         environment_layout.addRow("Video2X", self.video2x_label)
         environment_layout.addRow("Preferred GPU", self.gpu_label)
+        environment_layout.addRow("VapourSynth", self.vapoursynth_label)
+        environment_layout.addRow("vspipe", self.vspipe_label)
         self.tabs.addTab(self.environment_tab, "Environment")
 
         self.profile_tab = QWidget()
@@ -130,10 +134,16 @@ class PropertiesDialog(QDialog):
             self.ffprobe_label.setText("-")
             self.video2x_label.setText("-")
             self.gpu_label.setText("-")
+            self.vapoursynth_label.setText("-")
+            self.vspipe_label.setText("-")
             return
         self.ffmpeg_label.setText(_tool_text(environment.ffmpeg.available, environment.ffmpeg.path, environment.ffmpeg.version))
         self.ffprobe_label.setText(_tool_text(environment.ffprobe.available, environment.ffprobe.path, environment.ffprobe.version))
         self.video2x_label.setText(_tool_text(environment.video2x.available, environment.video2x.path, environment.video2x.version))
+        self.vapoursynth_label.setText(
+            _tool_text(environment.vapoursynth.available, environment.vapoursynth.path, environment.vapoursynth.version)
+        )
+        self.vspipe_label.setText(_tool_text(environment.vspipe.available, environment.vspipe.path, environment.vspipe.version))
         if environment.preferred_gpu is None:
             self.gpu_label.setText("-")
         else:

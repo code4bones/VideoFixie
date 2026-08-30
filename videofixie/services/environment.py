@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import which
 
+from videofixie.backends.vapoursynth import VapourSynthAdapter
 from videofixie.backends.video2x import Video2XAdapter
 from videofixie.domain.capabilities import BackendCapabilities, GpuDevice
 
@@ -25,6 +27,22 @@ class MachineEnvironment:
     video2x: ToolStatus
     video2x_capabilities: BackendCapabilities | None
     preferred_gpu: GpuDevice | None
+    vapoursynth: ToolStatus = field(
+        default_factory=lambda: ToolStatus(
+            name="vapoursynth",
+            path=None,
+            available=False,
+            error="Not checked",
+        )
+    )
+    vspipe: ToolStatus = field(
+        default_factory=lambda: ToolStatus(
+            name="vspipe",
+            path=None,
+            available=False,
+            error="Not checked",
+        )
+    )
 
 
 def discover_environment(
@@ -34,12 +52,16 @@ def discover_environment(
     ffprobe_path: str | Path | None = None,
     video2x_path: str | Path | None = None,
     preferred_gpu_index: int | None = None,
+    vapoursynth_python_path: str | Path | None = None,
+    vspipe_path: str | Path | None = None,
 ) -> MachineEnvironment:
     root = Path(project_root)
     ffmpeg_status = _probe_tool("ffmpeg", ("-version",), configured_path=ffmpeg_path)
     ffprobe_status = _probe_tool("ffprobe", ("-version",), configured_path=ffprobe_path)
     selected_video2x_path = str(video2x_path) if video2x_path else find_video2x_executable(root, video2x_candidates)
     video2x_status = _probe_video2x(selected_video2x_path)
+    vapoursynth_status = _probe_vapoursynth_python(vapoursynth_python_path)
+    vspipe_status = _probe_tool("vspipe", ("--version",), configured_path=vspipe_path)
 
     capabilities: BackendCapabilities | None = None
     preferred_gpu: GpuDevice | None = None
@@ -62,6 +84,8 @@ def discover_environment(
         video2x=video2x_status,
         video2x_capabilities=capabilities,
         preferred_gpu=preferred_gpu,
+        vapoursynth=vapoursynth_status,
+        vspipe=vspipe_status,
     )
 
 
@@ -134,6 +158,23 @@ def _probe_video2x(path: str | None) -> ToolStatus:
         return ToolStatus(name="video2x", path=path, available=False, error=str(exc))
 
     return ToolStatus(name="video2x", path=path, available=True, version=version)
+
+
+def _probe_vapoursynth_python(python_path: str | Path | None = None) -> ToolStatus:
+    path = str(python_path) if python_path else sys.executable
+    try:
+        version = VapourSynthAdapter(path).version()
+    except (OSError, subprocess.SubprocessError) as exc:
+        return ToolStatus(name="vapoursynth", path=path, available=False, error=_subprocess_error_text(exc))
+
+    return ToolStatus(name="vapoursynth", path=path, available=True, version=version)
+
+
+def _subprocess_error_text(error: BaseException) -> str:
+    stderr = getattr(error, "stderr", None)
+    if stderr:
+        return str(stderr).strip()
+    return str(error)
 
 
 def _first_line(text: str) -> str | None:

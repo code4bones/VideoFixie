@@ -1,6 +1,11 @@
 import unittest
 
-from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG, backend_by_slug, bundled_processing_backends
+from videofixie.domain.backends import (
+    VAPOURSYNTH_BACKEND_SLUG,
+    VIDEO2X_BACKEND_SLUG,
+    backend_by_slug,
+    bundled_processing_backends,
+)
 from videofixie.domain.profiles import bundled_profiles
 
 
@@ -10,6 +15,8 @@ class ProcessingBackendsTest(unittest.TestCase):
 
         self.assertEqual(backends[0].slug, VIDEO2X_BACKEND_SLUG)
         self.assertEqual(backend_by_slug(VIDEO2X_BACKEND_SLUG), backends[0])
+        self.assertEqual(backends[1].slug, VAPOURSYNTH_BACKEND_SLUG)
+        self.assertEqual(backend_by_slug(VAPOURSYNTH_BACKEND_SLUG), backends[1])
 
     def test_bundled_profiles_are_video2x_compatible(self) -> None:
         for profile in bundled_profiles():

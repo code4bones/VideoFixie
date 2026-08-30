@@ -24,6 +24,8 @@ class SettingsTest(unittest.TestCase):
                 ffmpeg_path="/opt/ffmpeg",
                 ffprobe_path="/opt/ffprobe",
                 video2x_path="/opt/video2x",
+                vapoursynth_python_path="/opt/vs/bin/python",
+                vspipe_path="/opt/vs/bin/vspipe",
                 output_directory="rendered",
                 cache_directory="scratch",
                 models_directory="vf-models",
