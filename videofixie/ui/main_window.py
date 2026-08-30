@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
+import threading
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -42,6 +45,7 @@ from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment
 from videofixie.services.history import PreviewResult, SavedCut
+from videofixie.services.system_metrics import SystemMetricsCollector, format_bytes
 from videofixie.ui.benchmark_worker import BenchmarkVariantRun, BenchmarkWorker
 from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
 from videofixie.ui.properties_dialog import PropertiesDialog
@@ -86,6 +90,11 @@ class MainWindow(QMainWindow):
         self.benchmark_worker: BenchmarkWorker | None = None
         self.variant_tiles: list[VariantTile] = []
         self.benchmark_outputs: dict[int, Path] = {}
+        self.metrics_collector = SystemMetricsCollector()
+        self.gpu_load_history: list[int] = []
+        self.cpu_load_history: list[int] = []
+        self.metrics_sampler = MetricsSampler(self.metrics_collector)
+        self.metrics_sampler.metricsChanged.connect(self._apply_system_metrics)
         self._syncing_playhead = False
         self._restarting_playback = False
         self._suppress_planning = True
@@ -96,6 +105,8 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self._build_ui()
         self._apply_style()
+        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            self.metrics_sampler.start()
         try:
             self._load_environment()
         finally:
@@ -180,6 +191,20 @@ class MainWindow(QMainWindow):
         variants_layout.setContentsMargins(8, 8, 8, 8)
         variants_layout.setSpacing(8)
         variants_toolbar = QHBoxLayout()
+        variants_toolbar.setSpacing(10)
+        self.variant_metrics_layout = variants_toolbar
+        self.gpu_metric = LoadMetricWidget("GPU load")
+        self.cpu_metric = LoadMetricWidget("CPU load")
+        self.ram_metric_label = QLabel("RAM N/A")
+        self.ram_metric_label.setObjectName("ramMetricLabel")
+        variants_toolbar.addWidget(self.gpu_metric)
+        variants_toolbar.addWidget(self.cpu_metric)
+        variants_toolbar.addWidget(self.ram_metric_label)
+        variants_toolbar.addStretch(1)
+        variants_layout.addLayout(variants_toolbar)
+
+        variants_controls = QHBoxLayout()
+        variants_controls.setSpacing(8)
         self.run_variants_button = QPushButton("Run Variants")
         self.apply_variant_button = QPushButton("Apply Selected")
         self.variant_parallel_spin = QSpinBox()
@@ -187,12 +212,12 @@ class MainWindow(QMainWindow):
         self.variant_parallel_spin.setValue(3)
         self.variant_parallel_spin.setToolTip("Maximum active Video2X variants")
         self.variant_status_label = QLabel("No variants planned")
-        variants_toolbar.addWidget(self.run_variants_button)
-        variants_toolbar.addWidget(self.apply_variant_button)
-        variants_toolbar.addWidget(QLabel("Parallel"))
-        variants_toolbar.addWidget(self.variant_parallel_spin)
-        variants_toolbar.addWidget(self.variant_status_label, 1)
-        variants_layout.addLayout(variants_toolbar)
+        variants_controls.addWidget(self.run_variants_button)
+        variants_controls.addWidget(self.apply_variant_button)
+        variants_controls.addWidget(QLabel("Parallel"))
+        variants_controls.addWidget(self.variant_parallel_spin)
+        variants_controls.addWidget(self.variant_status_label, 1)
+        variants_layout.addLayout(variants_controls)
         self.variant_scroll = QScrollArea()
         self.variant_scroll.setWidgetResizable(True)
         self.variant_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -342,6 +367,18 @@ class MainWindow(QMainWindow):
             QTabWidget::pane { border: 1px solid #343a46; }
             QTabBar::tab { background: #222732; color: #b7c0cf; padding: 7px 12px; border: 1px solid #343a46; }
             QTabBar::tab:selected { background: #303849; color: #ffffff; }
+            LoadMetricWidget {
+                background: #20242c;
+                border: 1px solid #343b49;
+                border-radius: 6px;
+            }
+            QLabel#ramMetricLabel {
+                background: #20242c;
+                border: 1px solid #343b49;
+                border-radius: 6px;
+                padding: 5px 8px;
+                color: #e8edf5;
+            }
             """
         )
 
@@ -868,6 +905,25 @@ class MainWindow(QMainWindow):
         self.variant_parallel_spin.setEnabled(not running)
         for tile in self.variant_tiles:
             tile.set_actions_enabled(not running)
+
+    def _apply_system_metrics(self, metrics) -> None:
+        if metrics.gpu_percent is not None:
+            self.gpu_load_history.append(metrics.gpu_percent)
+            self.gpu_load_history = self.gpu_load_history[-48:]
+        if metrics.cpu_percent is not None:
+            self.cpu_load_history.append(metrics.cpu_percent)
+            self.cpu_load_history = self.cpu_load_history[-48:]
+
+        self.gpu_metric.set_metric(metrics.gpu_percent, self.gpu_load_history)
+        self.cpu_metric.set_metric(metrics.cpu_percent, self.cpu_load_history)
+
+        ram_used = format_bytes(metrics.ram_used_bytes)
+        ram_total = format_bytes(metrics.ram_total_bytes)
+        ram_percent = f" {metrics.ram_percent}%" if metrics.ram_percent is not None else ""
+        if ram_used == "N/A" or ram_total == "N/A":
+            self.ram_metric_label.setText("RAM N/A")
+        else:
+            self.ram_metric_label.setText(f"RAM {ram_used}/{ram_total}{ram_percent}")
 
     def _mark_benchmark_queue(self, indices: tuple[int, ...] | None) -> None:
         selected_indices = indices or tuple(range(len(self.variant_tiles)))
@@ -1525,6 +1581,7 @@ class MainWindow(QMainWindow):
         self.large_view_action.setToolTip(reason)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self.metrics_sampler.stop()
         if self.preview_worker is not None:
             self.preview_worker.cancel()
         if self.benchmark_worker is not None:
@@ -1846,6 +1903,86 @@ class LargeSplitWindow(QWidget):
         self.processed_player.setSource(QUrl())
         self._on_close()
         super().closeEvent(event)
+
+
+class LoadMetricWidget(QWidget):
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        self.title = title
+        self.percent: int | None = None
+        self.values: tuple[int, ...] = ()
+        self.setFixedSize(172, 44)
+        self.setToolTip(title)
+
+    def set_metric(self, percent: int | None, values: list[int]) -> None:
+        self.percent = percent
+        self.values = tuple(values[-48:])
+        self.update()
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(172, 44)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        painter.setPen(QPen(QColor("#343b49"), 1))
+        painter.setBrush(QColor("#20242c"))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        painter.setPen(QColor("#b7c0cf"))
+        painter.drawText(10, 18, self.title)
+        value_text = "N/A" if self.percent is None else f"{self.percent}%"
+        painter.setPen(QColor("#e8edf5"))
+        painter.drawText(self.width() - 50, 18, value_text)
+
+        graph_rect = self.rect().adjusted(10, 24, -10, -7)
+        painter.setPen(QPen(QColor("#3b4454"), 1))
+        painter.drawLine(graph_rect.left(), graph_rect.bottom(), graph_rect.right(), graph_rect.bottom())
+        if len(self.values) < 2:
+            return
+
+        painter.setPen(QPen(QColor("#4c8bf5"), 2))
+        width = max(1, graph_rect.width())
+        height = max(1, graph_rect.height())
+        step = width / (len(self.values) - 1)
+        previous_x = graph_rect.left()
+        previous_y = graph_rect.bottom() - round((self.values[0] / 100) * height)
+        for index, value in enumerate(self.values[1:], start=1):
+            x = graph_rect.left() + round(index * step)
+            y = graph_rect.bottom() - round((value / 100) * height)
+            painter.drawLine(previous_x, previous_y, x, y)
+            previous_x = x
+            previous_y = y
+
+
+class MetricsSampler(QObject):
+    metricsChanged = Signal(object)
+
+    def __init__(self, collector: SystemMetricsCollector, interval_seconds: float = 1.0) -> None:
+        super().__init__()
+        self.collector = collector
+        self.interval_seconds = interval_seconds
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, name="videofixie-metrics", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            self.metricsChanged.emit(self.collector.sample())
+            self._stop_event.wait(self.interval_seconds)
 
 
 def _seconds_spin() -> QDoubleSpinBox:

@@ -144,6 +144,10 @@ Always synchronize time positions between original and processed preview.
 
 ## Video2X variant grid
 The Variants tab benchmarks several practical Video2X live-action configurations on the current TestSegment without requiring the user to manually switch profiles between runs.
+The top toolbar in this tab is reserved for live resource telemetry only:
+- GPU load with a compact sparkline and current percent;
+- CPU load with a compact sparkline and current percent;
+- RAM current usage next to them.
 
 Initial grid behavior:
 - plan all variants from the same source segment and output preset;
