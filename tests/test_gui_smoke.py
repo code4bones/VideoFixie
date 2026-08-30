@@ -22,6 +22,15 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.windowTitle(), "VideoFixie")
         self.assertGreater(window.profile_combo.count(), 0)
         self.assertGreaterEqual(window.output_combo.count(), 5)
+        self.assertFalse(hasattr(window, "env_box"))
+        self.assertFalse(hasattr(window, "source_box"))
+        self.assertFalse(hasattr(window, "profile_box"))
+        self.assertFalse(window.command_text.isVisible())
+
+        window.open_properties()
+        app.processEvents()
+        self.assertIsNotNone(window.properties_dialog)
+        self.assertIn("Open a source video", window.properties_dialog.command_text.toPlainText())
 
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -100,6 +109,7 @@ class GuiSmokeTest(unittest.TestCase):
             def __init__(self) -> None:
                 self.context_plan_count = 0
                 self.heavy_plan_count = 0
+                self.work_dirs = []
 
             def profiles(self):
                 return profiles
@@ -123,8 +133,9 @@ class GuiSmokeTest(unittest.TestCase):
                 device_index=None,
                 output_preset=None,
             ):
-                del work_dir, device_index, output_preset
+                del device_index, output_preset
                 self.context_plan_count += 1
+                self.work_dirs.append(work_dir)
                 return PlannedPreview(
                     media=media,
                     environment=environment,
@@ -145,6 +156,100 @@ class GuiSmokeTest(unittest.TestCase):
 
         self.assertEqual(service.context_plan_count, 2)
         self.assertEqual(service.heavy_plan_count, 0)
+        self.assertEqual(str(service.work_dirs[-1]), "cache/previews")
+
+    def test_settings_defaults_apply_to_profile_output_and_cache(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.jobs import ProcessingJob
+        from videofixie.domain.media import MediaInfo
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.domain.settings import AppSettings
+        from videofixie.services.app import PlannedPreview
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.work_dir = None
+
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def load_settings(self):
+                return AppSettings(
+                    cache_directory="scratch",
+                    models_directory="models",
+                    default_profile_slug="balanced-realcugan-x2",
+                    default_output_preset_slug="balanced",
+                )
+
+            def plan_preview_with_context(
+                self,
+                source_path,
+                work_dir,
+                profile,
+                segment,
+                media,
+                environment,
+                device_index=None,
+                output_preset=None,
+            ):
+                del device_index
+                self.work_dir = work_dir
+                return PlannedPreview(
+                    media=media,
+                    environment=environment,
+                    profile=profile,
+                    segment=segment,
+                    job=ProcessingJob(source_path=source_path, output_path=Path("out.mp4"), profile=profile, stages=()),
+                    output_preset=output_preset,
+                )
+
+        service = FakeService()
+        window = MainWindow(service=service)
+        window.source_path = Path("samples/1.mp4")
+        window.media = media
+        window.environment = environment
+        window.plan_preview()
+        app.processEvents()
+
+        self.assertEqual(window.profile_combo.currentData(), "balanced-realcugan-x2")
+        self.assertEqual(window.output_combo.currentData(), "balanced")
+        self.assertEqual(str(service.work_dir), "scratch/previews")
 
     def test_processed_playback_maps_local_time_to_source_segment(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -46,9 +46,11 @@ Or launch the module directly:
 In the UI, select a test segment on the timeline and press `Run Preview`.
 Use `Profile` for AI/model/scale/noise selection and `Output` for the encoding preset.
 The same button changes to `Cancel Preview` while the job is running.
-The preview runs in the background, can be cancelled, writes logs into the command panel, and opens the result in the `Processed` tab when finished.
+The preview runs in the background, can be cancelled, writes logs into `Properties`, and opens the result in the `Processed` tab when finished.
 IN/OUT fields accept exact timecodes such as `12.5`, `1:02.500`, or `1:02:03.250`.
 `Large View` opens fullscreen playback for Original/Processed and a separate resizable side-by-side window for Split; Space toggles play/stop there.
+Use `Properties` for source/environment/profile details and the planned/run command log.
+Use `Settings` for tool paths, output/cache/models directories, preferred GPU, and default profile/output preset.
 
 Preview cuts and result history are persisted in a local SQLite database:
 
@@ -58,6 +60,7 @@ Preview cuts and result history are persisted in a local SQLite database:
 - `Load Result` opens a saved output in `Processed`/`Split` for comparison.
 
 By default the database lives in the current working directory as `./videofixie.sqlite3`.
+Managed model downloads should use the configured models directory, defaulting to `./models`, not `$HOME`.
 
 Run deterministic tests with:
 

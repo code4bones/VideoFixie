@@ -139,10 +139,13 @@ Keep two kinds of configuration separate:
 
 ### Machine configuration
 - Video2X executable path;
-- ffmpeg path;
+- ffmpeg/ffprobe paths;
 - preferred GPU;
 - cache directory;
-- default output directory.
+- default output directory;
+- managed models directory.
+
+Machine configuration is persisted locally in the current working directory SQLite database. The default managed models directory is `./models`, not `$HOME`, so future model downloads stay under the project/user-selected workspace.
 
 ### Processing profiles
 Portable restoration settings without machine-specific absolute paths or GPU indices.
@@ -158,6 +161,9 @@ Bundled output presets describe user intent:
 - Archive.
 
 Each preset compiles to explicit backend encoder settings such as codec, CRF and encoder preset. Preview/intermediate output defaults to a high-fidelity preview preset, while future full exports should default to a practical final-output preset.
+
+### Model catalog
+Model catalog and installation state are separate from processing profiles. A future Model Manager should discover bundled Video2X models and install trusted official models into the configured managed models directory.
 
 ## Error model
 Translate raw backend failures into useful categories while preserving raw logs.

@@ -27,19 +27,26 @@ class MachineEnvironment:
     preferred_gpu: GpuDevice | None
 
 
-def discover_environment(project_root: str | Path = ".", video2x_candidates: tuple[str | Path, ...] = ()) -> MachineEnvironment:
+def discover_environment(
+    project_root: str | Path = ".",
+    video2x_candidates: tuple[str | Path, ...] = (),
+    ffmpeg_path: str | Path | None = None,
+    ffprobe_path: str | Path | None = None,
+    video2x_path: str | Path | None = None,
+    preferred_gpu_index: int | None = None,
+) -> MachineEnvironment:
     root = Path(project_root)
-    ffmpeg_status = _probe_tool("ffmpeg", ("-version",))
-    ffprobe_status = _probe_tool("ffprobe", ("-version",))
-    video2x_path = find_video2x_executable(root, video2x_candidates)
-    video2x_status = _probe_video2x(video2x_path)
+    ffmpeg_status = _probe_tool("ffmpeg", ("-version",), configured_path=ffmpeg_path)
+    ffprobe_status = _probe_tool("ffprobe", ("-version",), configured_path=ffprobe_path)
+    selected_video2x_path = str(video2x_path) if video2x_path else find_video2x_executable(root, video2x_candidates)
+    video2x_status = _probe_video2x(selected_video2x_path)
 
     capabilities: BackendCapabilities | None = None
     preferred_gpu: GpuDevice | None = None
     if video2x_status.available and video2x_status.path:
         try:
             capabilities = Video2XAdapter(video2x_status.path).capabilities()
-            preferred_gpu = choose_preferred_gpu(capabilities.devices)
+            preferred_gpu = choose_preferred_gpu(capabilities.devices, preferred_gpu_index=preferred_gpu_index)
         except (OSError, subprocess.SubprocessError) as exc:
             video2x_status = ToolStatus(
                 name="video2x",
@@ -72,9 +79,14 @@ def find_video2x_executable(project_root: str | Path = ".", candidates: tuple[st
     return which("video2x")
 
 
-def choose_preferred_gpu(devices: tuple[GpuDevice, ...]) -> GpuDevice | None:
+def choose_preferred_gpu(devices: tuple[GpuDevice, ...], preferred_gpu_index: int | None = None) -> GpuDevice | None:
     if not devices:
         return None
+
+    if preferred_gpu_index is not None:
+        for device in devices:
+            if device.index == preferred_gpu_index:
+                return device
 
     for device in devices:
         device_text = f"{device.name} {device.type or ''}".lower()
@@ -93,8 +105,8 @@ def choose_preferred_gpu(devices: tuple[GpuDevice, ...]) -> GpuDevice | None:
     return devices[0]
 
 
-def _probe_tool(name: str, version_args: tuple[str, ...]) -> ToolStatus:
-    path = which(name)
+def _probe_tool(name: str, version_args: tuple[str, ...], configured_path: str | Path | None = None) -> ToolStatus:
+    path = str(configured_path) if configured_path else which(name)
     if path is None:
         return ToolStatus(name=name, path=None, available=False, error="Executable not found")
 

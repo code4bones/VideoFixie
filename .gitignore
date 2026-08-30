@@ -17,4 +17,5 @@ bin/
 samples/
 outputs/
 cache/
+models/
 .resume

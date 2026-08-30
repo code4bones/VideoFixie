@@ -9,9 +9,11 @@ from videofixie.domain.jobs import ProcessingJob, TestSegment
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets, preview_output_preset
 from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
+from videofixie.domain.settings import AppSettings
 from videofixie.services.environment import MachineEnvironment, discover_environment
 from videofixie.services.history import PreviewResult, SavedCut, VideoFixieHistory
 from videofixie.services.planner import build_test_segment_job
+from videofixie.services.settings import VideoFixieSettingsStore
 
 
 @dataclass(frozen=True)
@@ -25,9 +27,15 @@ class PlannedPreview:
 
 
 class VideoFixieService:
-    def __init__(self, project_root: str | Path = ".", history: VideoFixieHistory | None = None) -> None:
+    def __init__(
+        self,
+        project_root: str | Path = ".",
+        history: VideoFixieHistory | None = None,
+        settings_store: VideoFixieSettingsStore | None = None,
+    ) -> None:
         self.project_root = Path(project_root)
         self._history = history
+        self._settings_store = settings_store
 
     @property
     def history(self) -> VideoFixieHistory:
@@ -35,17 +43,37 @@ class VideoFixieService:
             self._history = VideoFixieHistory()
         return self._history
 
+    @property
+    def settings_store(self) -> VideoFixieSettingsStore:
+        if self._settings_store is None:
+            self._settings_store = VideoFixieSettingsStore()
+        return self._settings_store
+
     def discover_environment(self) -> MachineEnvironment:
-        return discover_environment(self.project_root)
+        settings = self.load_settings()
+        return discover_environment(
+            self.project_root,
+            ffmpeg_path=settings.ffmpeg_path,
+            ffprobe_path=settings.ffprobe_path,
+            video2x_path=settings.video2x_path,
+            preferred_gpu_index=settings.preferred_gpu_index,
+        )
 
     def analyze_source(self, source_path: str | Path) -> MediaInfo:
-        return FFmpegAdapter().probe(source_path)
+        settings = self.load_settings()
+        return FFmpegAdapter(ffmpeg_path=settings.ffmpeg_path, ffprobe_path=settings.ffprobe_path).probe(source_path)
 
     def profiles(self) -> tuple[ProcessingProfile, ...]:
         return bundled_profiles()
 
     def output_presets(self) -> tuple[OutputPreset, ...]:
         return bundled_output_presets()
+
+    def load_settings(self) -> AppSettings:
+        return self.settings_store.load()
+
+    def save_settings(self, settings: AppSettings) -> None:
+        self.settings_store.save(settings)
 
     def save_source_segment(
         self,

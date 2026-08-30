@@ -7,10 +7,9 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
-    QFormLayout,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -18,7 +17,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QProgressBar,
-    QSplitter,
     QDoubleSpinBox,
     QStyle,
     QTabWidget,
@@ -31,10 +29,13 @@ from videofixie.domain.jobs import TestSegment, TestSegmentKind
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import OutputPreset, bundled_output_presets
 from videofixie.domain.profiles import ProcessingProfile
+from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment
 from videofixie.services.history import PreviewResult
 from videofixie.ui.preview_worker import PreviewWorker, successful_output_path
+from videofixie.ui.properties_dialog import PropertiesDialog
+from videofixie.ui.settings_dialog import SettingsDialog
 from videofixie.ui.timeline import SegmentTimeline
 from videofixie.ui.timecode import TimecodeEdit
 
@@ -48,6 +49,8 @@ class MainWindow(QMainWindow):
         self.source_path: Path | None = None
         self.profiles = self.service.profiles()
         self.output_presets = self.service.output_presets() if hasattr(self.service, "output_presets") else bundled_output_presets()
+        self.settings = self.service.load_settings() if hasattr(self.service, "load_settings") else AppSettings()
+        self.profile_summary_text = ""
         self._syncing_segment_controls = False
         self.current_job = None
         self.current_plan_segment: TestSegment | None = None
@@ -57,6 +60,7 @@ class MainWindow(QMainWindow):
         self.processed_segment: TestSegment | None = None
         self.saved_results: tuple[PreviewResult, ...] = ()
         self.large_split_window: LargeSplitWindow | None = None
+        self.properties_dialog: PropertiesDialog | None = None
         self.preview_thread: QThread | None = None
         self.preview_worker: PreviewWorker | None = None
         self._syncing_playhead = False
@@ -88,6 +92,12 @@ class MainWindow(QMainWindow):
         self.large_view_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton), "Large View")
         self.large_view_action.triggered.connect(self.open_large_view)
 
+        properties_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView), "Properties")
+        properties_action.triggered.connect(self.open_properties)
+
+        settings_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), "Settings")
+        settings_action.triggered.connect(self.open_settings)
+
         refresh_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "Refresh Env")
         refresh_action.triggered.connect(self._load_environment)
 
@@ -118,55 +128,6 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self.gpu_combo, 1)
         root_layout.addLayout(top_row)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root_layout.addWidget(splitter, 1)
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 6, 0)
-        splitter.addWidget(left)
-
-        self.env_box = QGroupBox("Environment")
-        self.env_layout = QFormLayout(self.env_box)
-        self.ffmpeg_label = QLabel("checking")
-        self.ffprobe_label = QLabel("checking")
-        self.video2x_label = QLabel("checking")
-        self.env_layout.addRow("FFmpeg", self.ffmpeg_label)
-        self.env_layout.addRow("FFprobe", self.ffprobe_label)
-        self.env_layout.addRow("Video2X", self.video2x_label)
-        left_layout.addWidget(self.env_box)
-
-        self.source_box = QGroupBox("Source")
-        self.source_layout = QFormLayout(self.source_box)
-        self.file_label = QLabel("No file selected")
-        self.duration_label = QLabel("-")
-        self.resolution_label = QLabel("-")
-        self.fps_label = QLabel("-")
-        self.codec_label = QLabel("-")
-        self.scan_label = QLabel("-")
-        self.audio_label = QLabel("-")
-        self.source_layout.addRow("File", self.file_label)
-        self.source_layout.addRow("Duration", self.duration_label)
-        self.source_layout.addRow("Resolution", self.resolution_label)
-        self.source_layout.addRow("FPS", self.fps_label)
-        self.source_layout.addRow("Codec", self.codec_label)
-        self.source_layout.addRow("Scan", self.scan_label)
-        self.source_layout.addRow("Audio", self.audio_label)
-        left_layout.addWidget(self.source_box)
-
-        self.profile_box = QGroupBox("Profile Summary")
-        profile_layout = QVBoxLayout(self.profile_box)
-        self.profile_summary_label = QLabel()
-        self.profile_summary_label.setWordWrap(True)
-        profile_layout.addWidget(self.profile_summary_label)
-        left_layout.addWidget(self.profile_box)
-        left_layout.addStretch(1)
-
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(6, 0, 0, 0)
-        splitter.addWidget(right)
-
         self.tabs = QTabWidget()
         self.video_widget = QVideoWidget()
         self.video_widget.installEventFilter(self)
@@ -184,14 +145,13 @@ class MainWindow(QMainWindow):
         split_layout.addWidget(self.split_processed_widget, 1)
         self.tabs.addTab(split_widget, "Split")
         self.tabs.currentChanged.connect(self._on_active_tab_changed)
-        right_layout.addWidget(self.tabs, 6)
+        root_layout.addWidget(self.tabs, 1)
 
-        self.command_text = QPlainTextEdit()
+        self.command_text = QPlainTextEdit(self)
         self.command_text.setReadOnly(True)
         self.command_text.setPlaceholderText("Planned commands")
         self.command_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.command_text.setMaximumHeight(170)
-        right_layout.addWidget(self.command_text, 1)
+        self.command_text.hide()
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
@@ -294,8 +254,8 @@ class MainWindow(QMainWindow):
         self.load_result_button.clicked.connect(self.load_selected_result)
         self.run_preview_button.clicked.connect(self.toggle_preview)
 
+        self._apply_settings_defaults_to_controls()
         self._update_large_view_state()
-        splitter.setSizes([360, 920])
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -325,6 +285,26 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.load_source(Path(path))
+
+    def open_settings(self) -> None:
+        dialog = SettingsDialog(self.settings, self.profiles, self.output_presets, self.environment, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.settings = dialog.settings()
+        if hasattr(self.service, "save_settings"):
+            self.service.save_settings(self.settings)
+        self._apply_settings_defaults_to_controls()
+        self._load_environment()
+        self.plan_preview()
+
+    def open_properties(self) -> None:
+        if self.properties_dialog is None:
+            self.properties_dialog = PropertiesDialog(self)
+            self.properties_dialog.finished.connect(lambda _result: self._clear_properties_dialog())
+        self._refresh_properties_dialog()
+        self.properties_dialog.show()
+        self.properties_dialog.raise_()
+        self.properties_dialog.activateWindow()
 
     def load_source(self, path: Path) -> None:
         try:
@@ -358,9 +338,11 @@ class MainWindow(QMainWindow):
     def plan_preview(self) -> None:
         if self.source_path is None:
             self.command_text.setPlainText("Open a source video to plan preview commands.")
+            self._refresh_properties_dialog()
             return
         if self.media is None or self.environment is None:
             self.command_text.setPlainText("Source or environment is not ready.")
+            self._refresh_properties_dialog()
             return
         profile = self._selected_profile()
         output_preset = self._selected_output_preset()
@@ -368,7 +350,7 @@ class MainWindow(QMainWindow):
         try:
             plan = self.service.plan_preview_with_context(
                 source_path=self.source_path,
-                work_dir=Path("cache/previews"),
+                work_dir=self._preview_work_dir(),
                 profile=profile,
                 segment=segment,
                 media=self.media,
@@ -395,6 +377,7 @@ class MainWindow(QMainWindow):
         for index, stage in enumerate(plan.job.stages, start=1):
             lines.extend(["", f"Stage {index}: {stage.label}", stage.command.display()])
         self.command_text.setPlainText("\n".join(lines))
+        self._refresh_properties_dialog()
 
     def toggle_playback(self) -> None:
         if self._active_player_is_playing():
@@ -541,9 +524,11 @@ class MainWindow(QMainWindow):
     def _on_preview_stage_started(self, label: str, command: str) -> None:
         self.preview_status.setText(label)
         self.command_text.appendPlainText(f"\nRunning: {label}\n{command}")
+        self._refresh_properties_dialog()
 
     def _on_preview_output(self, line: str) -> None:
         self.command_text.appendPlainText(line)
+        self._refresh_properties_dialog()
 
     def _on_preview_progress(self, progress) -> None:
         if progress.percent is not None:
@@ -608,9 +593,6 @@ class MainWindow(QMainWindow):
 
     def _load_environment(self) -> None:
         self.environment = self.service.discover_environment()
-        self.ffmpeg_label.setText(_tool_text(self.environment.ffmpeg.available, self.environment.ffmpeg.path, self.environment.ffmpeg.version))
-        self.ffprobe_label.setText(_tool_text(self.environment.ffprobe.available, self.environment.ffprobe.path, self.environment.ffprobe.version))
-        self.video2x_label.setText(_tool_text(self.environment.video2x.available, self.environment.video2x.path, self.environment.video2x.version))
 
         self.gpu_combo.clear()
         if self.environment.video2x_capabilities is not None:
@@ -619,25 +601,11 @@ class MainWindow(QMainWindow):
                 self.gpu_combo.addItem(f"{device.index}. {device.name}", device.index)
                 if device.index == preferred_index:
                     self.gpu_combo.setCurrentIndex(row)
+        self._refresh_properties_dialog()
         self.plan_preview()
 
     def _update_source_info(self) -> None:
-        if self.media is None:
-            return
-        video = self.media.primary_video
-        self.file_label.setText(self.source_path.name if self.source_path else str(self.media.path))
-        self.duration_label.setText(_format_seconds(self.media.duration_seconds))
-        if video is None:
-            self.resolution_label.setText("-")
-            self.fps_label.setText("-")
-            self.codec_label.setText("-")
-            self.scan_label.setText("-")
-        else:
-            self.resolution_label.setText(f"{video.width}x{video.height}")
-            self.fps_label.setText("-" if video.fps is None else f"{video.fps:.3g}")
-            self.codec_label.setText(video.codec_name or "unknown")
-            self.scan_label.setText(video.scan_type)
-        self.audio_label.setText(str(len(self.media.audio_streams)))
+        self._refresh_properties_dialog()
 
     def _update_profile_summary(self) -> None:
         profile = self._selected_profile()
@@ -649,12 +617,13 @@ class MainWindow(QMainWindow):
             flags.append(f"Noise {profile.noise_level}")
         else:
             flags.append("Noise unchanged")
-        self.profile_summary_label.setText(
+        self.profile_summary_text = (
             f"{profile.summary}\n"
             f"Processor: {profile.processor} / {profile.model}\n"
             f"Scale: {profile.scale or 'target'}x | {', '.join(flags)}\n"
             f"Output: {output_preset.name} | {output_preset.codec} CRF {output_preset.crf} | {output_preset.encoder_preset}"
         )
+        self._refresh_properties_dialog()
         self.plan_preview()
 
     def _selected_profile(self) -> ProcessingProfile:
@@ -674,6 +643,9 @@ class MainWindow(QMainWindow):
     def _selected_device_index(self) -> int | None:
         value = self.gpu_combo.currentData()
         return int(value) if value is not None else None
+
+    def _preview_work_dir(self) -> Path:
+        return Path(self.settings.cache_directory).expanduser() / "previews"
 
     def _current_segment(self) -> TestSegment:
         label = self.segment_label.currentText().strip() or "Preview"
@@ -972,6 +944,26 @@ class MainWindow(QMainWindow):
         if index >= 0:
             self.output_combo.setCurrentIndex(index)
 
+    def _apply_settings_defaults_to_controls(self) -> None:
+        self._select_profile_slug(self.settings.default_profile_slug)
+        self._select_output_preset_slug(self.settings.default_output_preset_slug)
+
+    def _refresh_properties_dialog(self) -> None:
+        if self.properties_dialog is None:
+            return
+        self.properties_dialog.update_data(
+            media=self.media,
+            source_path=self.source_path,
+            environment=self.environment,
+            profile=self._selected_profile(),
+            output_preset=self._selected_output_preset(),
+            profile_summary=self.profile_summary_text,
+            command_log=self.command_text.toPlainText(),
+        )
+
+    def _clear_properties_dialog(self) -> None:
+        self.properties_dialog = None
+
     def _open_large_split_view(self) -> None:
         if self.source_path is None or self.processed_output_path is None or self.processed_segment is None:
             self._update_large_view_state()
@@ -1221,22 +1213,6 @@ def _seconds_spin() -> QDoubleSpinBox:
     spin.setSingleStep(1.0)
     spin.setSuffix(" s")
     return spin
-
-
-def _tool_text(available: bool, path: str | None, version: str | None) -> str:
-    state = "ok" if available else "missing"
-    details = version or path or ""
-    return f"{state} {details}".strip()
-
-
-def _format_seconds(seconds: float | None) -> str:
-    if seconds is None:
-        return "-"
-    minutes, second = divmod(int(round(seconds)), 60)
-    hours, minute = divmod(minutes, 60)
-    if hours:
-        return f"{hours}:{minute:02d}:{second:02d}"
-    return f"{minute}:{second:02d}"
 
 
 def _result_text(result: PreviewResult) -> str:

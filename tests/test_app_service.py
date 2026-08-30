@@ -8,9 +8,11 @@ from videofixie.domain.jobs import TestSegment
 from videofixie.domain.media import MediaInfo
 from videofixie.domain.output_presets import bundled_output_presets
 from videofixie.domain.profiles import bundled_profiles
+from videofixie.domain.settings import AppSettings
 from videofixie.services.app import VideoFixieService
 from videofixie.services.environment import MachineEnvironment, ToolStatus
 from videofixie.services.history import VideoFixieHistory
+from videofixie.services.settings import VideoFixieSettingsStore
 
 
 class VideoFixieServiceTest(unittest.TestCase):
@@ -19,6 +21,16 @@ class VideoFixieServiceTest(unittest.TestCase):
 
     def test_output_presets_returns_bundled_presets(self) -> None:
         self.assertEqual(VideoFixieService().output_presets(), bundled_output_presets())
+
+    def test_settings_facade_persists_app_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            service = VideoFixieService(settings_store=store)
+            settings = AppSettings(models_directory="models-local", default_output_preset_slug="balanced")
+
+            service.save_settings(settings)
+
+            self.assertEqual(service.load_settings(), settings)
 
     def test_history_facade_saves_segment_and_preview_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

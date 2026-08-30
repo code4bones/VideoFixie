@@ -9,13 +9,12 @@ Suggested layout:
 +-----------------------------------------------------------+
 | File | Profile | GPU | Settings                           |
 +-----------------------------------------------------------+
-| Source info            | Preview / Compare                |
-| 500x360                |                                  |
-| 25 fps CFR             |   video player                   |
-| H.264 385 kb/s         |                                  |
-| Progressive            |                                  |
-|                        | [Original | Processed | Split]    |
-+------------------------+----------------------------------+
+| Preview / Compare                                         |
+|                                                           |
+|   video player                                            |
+|                                                           |
+|   [Original | Processed | Split]                          |
++-----------------------------------------------------------+
 | Preview range / timeline                                  |
 +-----------------------------------------------------------+
 | Profile: Natural       Scale: 2x     Noise: -1            |
@@ -29,8 +28,8 @@ Suggested layout:
 
 Exact visuals may evolve; preserve the workflow.
 
-## Source panel
-After opening a file, automatically show only restoration-relevant facts:
+## Properties
+After opening a file, the Properties dialog should show restoration-relevant facts:
 - resolution;
 - display aspect ratio;
 - FPS and CFR/VFR;
@@ -40,7 +39,7 @@ After opening a file, automatically show only restoration-relevant facts:
 - duration;
 - audio tracks.
 
-Full ffprobe/MediaInfo data should be available in a details dialog, not dumped into the main screen.
+Full ffprobe/MediaInfo data should be available in a details dialog, not dumped into the main screen. Environment, source facts, profile summary and command/run log belong in Properties so the main window stays focused on video review.
 
 ## Preview controls
 Preview is central to the product.
@@ -107,7 +106,7 @@ Output presets are separate from restoration profiles. The first bundled set is 
 Future options such as RIFE interpolation and grain can live here until mature.
 
 ## Command inspector
-Every planned stage should have a reproducibility view such as "Show commands".
+Every planned stage should have a reproducibility view in Properties.
 
 Example:
 
@@ -178,6 +177,9 @@ Application settings should include:
 - preferred GPU;
 - cache directory;
 - output directory;
+- managed models directory;
+- default processing profile;
+- default output preset;
 - cache cleanup policy.
 
 On first run, run a lightweight environment check and clearly show missing dependencies.
