@@ -27,6 +27,7 @@ class StageRunResult:
     label: str
     command: PlannedCommand
     exit_code: int
+    cwd: Path | None = None
     stdout: tuple[str, ...] = ()
     stderr: tuple[str, ...] = ()
     progress: tuple[JobProgress, ...] = ()
@@ -185,6 +186,7 @@ class SubprocessJobRunner:
             label=command.label,
             command=command,
             exit_code=exit_code,
+            cwd=Path(cwd) if cwd is not None else None,
             stdout=tuple(stdout),
             stderr=tuple(stderr),
             progress=tuple(progress_events),

@@ -691,7 +691,7 @@ class MainWindow(QMainWindow):
 
         job.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.preview_thread = QThread(self)
-        self.preview_worker = PreviewWorker(job)
+        self.preview_worker = PreviewWorker(job, run_logs_root=self._run_logs_root())
         self.preview_worker.moveToThread(self.preview_thread)
         self.preview_thread.started.connect(self.preview_worker.run)
         self.preview_worker.stageStarted.connect(self._on_preview_stage_started)
@@ -707,7 +707,7 @@ class MainWindow(QMainWindow):
         self._set_preview_running(True)
         self.preview_status.setText("Preview running")
         self.preview_progress.setValue(0)
-        self.command_text.appendPlainText("\nRun log:")
+        self.command_text.appendPlainText("\nRun log: preparing")
         self.preview_thread.start()
 
     def cancel_preview(self) -> None:
@@ -760,6 +760,7 @@ class MainWindow(QMainWindow):
             self.benchmark_plan,
             indices,
             max_parallel_jobs=self.variant_parallel_spin.value(),
+            run_logs_root=self._run_logs_root(),
         )
         self.benchmark_worker.moveToThread(self.benchmark_thread)
         self.benchmark_thread.started.connect(self.benchmark_worker.run)
@@ -1091,6 +1092,9 @@ class MainWindow(QMainWindow):
 
     def _preview_work_dir(self) -> Path:
         return Path(self.settings.cache_directory).expanduser() / "previews"
+
+    def _run_logs_root(self) -> Path:
+        return Path(self.settings.cache_directory).expanduser() / "runs"
 
     def _current_segment(self) -> TestSegment:
         label = self.segment_label.currentText().strip() or "Preview"

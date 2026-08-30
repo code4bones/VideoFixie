@@ -135,6 +135,10 @@ Store:
 - thumbnails.
 
 Each job should receive an isolated temp directory.
+Runtime diagnostics are written under project-local ignored storage, currently `cache/runs/<run-id>/`.
+The run id is emitted into the Properties command log. Preview runs write `preview.log`; Video2X
+benchmark runs write `shared-source.log` plus one `variant-XX-*.log` per tile. These logs are
+plain text so a failed backend command can be inspected after the UI run has finished.
 
 ## Configuration
 Keep two kinds of configuration separate:
@@ -190,3 +194,4 @@ Examples:
 - cancelled by user.
 
 Never hide stderr; provide an expandable raw-log view.
+Also preserve stdout/stderr, command, cwd, exit code and elapsed time in the corresponding run log file.

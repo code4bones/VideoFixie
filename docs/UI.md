@@ -157,6 +157,9 @@ Initial grid behavior:
 - allow applying a tile as the active Video2X processing profile.
 
 Tiles should stay lightweight. Do not create a separate media player per variant tile; completed tiles open through the existing preview/Large View playback path.
+Each benchmark run writes one ignored diagnostics directory containing the shared-source log and a
+separate log file for every variant tile. Failed tiles should preserve enough error text in the card
+and enough file path context in Properties to inspect the raw backend output later.
 
 The default live-action set excludes anime-specific models. Separate anime/custom benchmark sets may be added later.
 
@@ -194,6 +197,8 @@ Vulkan reported device lost while RealESRGAN was running.
 ```
 
 Do not replace the raw backend message; retain it in the log.
+The Properties command log should include `run_log:` or `run_log_dir:` entries for active preview
+and Variants runs so failed tiles can be matched to `cache/runs/<run-id>/variant-XX-*.log`.
 
 ## Settings
 Application settings should include:

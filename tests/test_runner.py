@@ -91,3 +91,4 @@ class SubprocessJobRunnerTest(unittest.TestCase):
 
         self.assertTrue(result.succeeded)
         self.assertEqual(result.stdout, (str(work_dir),))
+        self.assertEqual(result.cwd, work_dir)

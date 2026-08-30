@@ -109,6 +109,90 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(max_active, 2)
         self.assertTrue(all(run.output_path is not None for run in finished))
 
+    def test_worker_writes_run_logs_for_shared_cut_and_variants(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_1 = Path(tmp_dir) / "one.mp4"
+            output_2 = Path(tmp_dir) / "two.mp4"
+            logs_root = Path(tmp_dir) / "runs"
+            benchmark = _benchmark((output_1, output_2))
+            finished = []
+
+            def fake_run_stage(stage, **kwargs):
+                if stage.command.label == "shared cut":
+                    return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("cut",))
+                if stage.command.label == "variant one":
+                    return StageRunResult(stage.label, stage.command, exit_code=1, stderr=("failed",))
+                output_2.write_bytes(b"ok")
+                return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("ready",))
+
+            worker = BenchmarkWorker(benchmark, run_logs_root=logs_root)
+            worker.variantFinished.connect(finished.append)
+            with patch("videofixie.ui.benchmark_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+            log_paths = sorted(logs_root.glob("variants-*/**/*.log"))
+            shared_log = next(path for path in log_paths if path.name == "shared-source.log")
+            failed_log = next(path for path in log_paths if "variant-01" in path.name)
+            completed_log = next(path for path in log_paths if "variant-02" in path.name)
+            shared_text = shared_log.read_text(encoding="utf-8")
+            failed_text = failed_log.read_text(encoding="utf-8")
+            completed_text = completed_log.read_text(encoding="utf-8")
+
+        self.assertEqual(len(finished), 2)
+        self.assertGreaterEqual(len(log_paths), 3)
+        self.assertIn("shared cut", shared_text)
+        self.assertIn("failed", failed_text)
+        self.assertIn("ready", completed_text)
+        self.assertEqual(finished[0].log_path, failed_log)
+
+    def test_preview_worker_writes_run_log(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.preview_worker import PreviewWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            logs_root = Path(tmp_dir) / "runs"
+            output_path = Path(tmp_dir) / "preview.mp4"
+            profile = ProcessingProfile(
+                slug="preview-profile",
+                name="Preview Profile",
+                summary="Fixture",
+                processor="realcugan",
+                model="models-se",
+                scale=2,
+                noise_level=None,
+            )
+            command = PlannedCommand("python", ("-c", "pass"), "preview command")
+            job = ProcessingJob(
+                source_path=Path("samples/1.mp4"),
+                output_path=output_path,
+                profile=profile,
+                stages=(ProcessingStage("preview command", command),),
+            )
+
+            def fake_run_stage(stage, **kwargs):
+                return StageRunResult(stage.label, stage.command, exit_code=0, stdout=("preview-ready",))
+
+            worker = PreviewWorker(job, run_logs_root=logs_root)
+            with patch("videofixie.ui.preview_worker.SubprocessJobRunner.run_stage", side_effect=fake_run_stage):
+                worker.run()
+
+            log_paths = sorted(logs_root.glob("preview-*/preview.log"))
+            text = log_paths[0].read_text(encoding="utf-8")
+
+        self.assertEqual(len(log_paths), 1)
+        self.assertIn("VideoFixie preview run", text)
+        self.assertIn("preview command", text)
+        self.assertIn("preview-ready", text)
+
 
 def _benchmark(output_paths: tuple[Path, ...]) -> PlannedVideo2XBenchmark:
     media = MediaInfo(

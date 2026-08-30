@@ -251,6 +251,9 @@ Do not assume every RealCUGAN model supports every noise level. In the verified 
 
 ## Video2X variant benchmark
 Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment, prepares the shared preview source once, and runs Video2X variants through a bounded queue with the same preview output preset. The UI exposes a small parallelism limit capped at 3 active Video2X variants; use lower values if VRAM pressure appears.
+Every Variants run writes diagnostics to `cache/runs/<run-id>/`: `shared-source.log` for the cut
+stage and `variant-XX-*.log` files for each tile. Logs include command, cwd, stdout, stderr,
+exit code, elapsed time and final status.
 
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, conservative, explicit noise 0 and denoise 3 where installed;

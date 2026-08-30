@@ -9,6 +9,7 @@ from videofixie.backends.vapoursynth import parse_progress_line as parse_vapours
 from videofixie.backends.video2x import parse_progress_line as parse_video2x_progress_line
 from videofixie.domain.jobs import JobProgress, ProcessingJob, ProcessingStage
 from videofixie.jobs.runner import CancellationToken, JobRunResult, ProcessLogLine, SubprocessJobRunner
+from videofixie.services.run_logs import RunLogFile, create_run_directory
 
 
 class PreviewWorker(QObject):
@@ -18,15 +19,31 @@ class PreviewWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, job: ProcessingJob) -> None:
+    def __init__(self, job: ProcessingJob, run_logs_root: Path | None = None) -> None:
         super().__init__()
         self.job = job
+        self.run_logs_root = run_logs_root
         self.cancellation_token = CancellationToken()
 
     @Slot()
     def run(self) -> None:
         try:
             self.job.output_path.parent.mkdir(parents=True, exist_ok=True)
+            run_log = None
+            if self.run_logs_root is not None:
+                run_dir = create_run_directory(self.run_logs_root, "preview")
+                run_log = RunLogFile.create(
+                    run_dir,
+                    "preview",
+                    "VideoFixie preview run",
+                    {
+                        "source": str(self.job.source_path),
+                        "output": str(self.job.output_path),
+                        "profile": self.job.profile.slug,
+                        "output_preset": self.job.output_preset.slug,
+                    },
+                )
+                self.outputReceived.emit(f"run_log: {run_log.path}")
             runner = SubprocessJobRunner(progress_parser=_parse_preview_progress_line)
             results = []
             for stage in self.job.stages:
@@ -39,10 +56,15 @@ class PreviewWorker(QObject):
                     on_output=self._handle_output,
                     on_progress=self._handle_progress,
                 )
+                if run_log is not None:
+                    run_log.append_stage_result(stage, result)
                 results.append(result)
                 if not result.succeeded:
                     break
-            self.finished.emit(JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled))
+            job_result = JobRunResult(stages=tuple(results), cancelled=self.cancellation_token.is_cancelled)
+            if run_log is not None:
+                run_log.append_status(_job_status(job_result))
+            self.finished.emit(job_result)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
 
@@ -72,3 +94,11 @@ def _stage_display(stage: ProcessingStage) -> str:
     if stage.cwd is None:
         return command
     return f"cd {quote(str(stage.cwd))} && {command}"
+
+
+def _job_status(result: JobRunResult) -> str:
+    if result.succeeded:
+        return "succeeded"
+    if result.cancelled:
+        return "cancelled"
+    return "failed"
