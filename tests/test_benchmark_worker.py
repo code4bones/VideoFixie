@@ -116,6 +116,18 @@ class BenchmarkWorkerTest(unittest.TestCase):
         self.assertEqual(max_active, 2)
         self.assertTrue(all(run.output_path is not None for run in finished))
 
+    def test_worker_clamps_parallel_variant_limit_to_six(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.ui.benchmark_worker import BenchmarkWorker
+
+        app = QApplication.instance() or QApplication([])
+        del app
+        benchmark = _benchmark((Path("one.mp4"),))
+
+        self.assertEqual(BenchmarkWorker(benchmark, max_parallel_jobs=99).max_parallel_jobs, 6)
+        self.assertEqual(BenchmarkWorker(benchmark, max_parallel_jobs=0).max_parallel_jobs, 1)
+
     def test_worker_rejects_video2x_vulkan_failure_even_when_output_exists(self) -> None:
         from PySide6.QtWidgets import QApplication
 

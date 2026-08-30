@@ -79,6 +79,7 @@ class PreviewWorker(QObject):
                 validation_stage = build_media_validation_stage(
                     self.job.output_path,
                     ffmpeg_path=media_validation_ffmpeg_path(self.job),
+                    max_seconds=30.0,
                 )
                 self.stageStarted.emit(validation_stage.label, _stage_display(validation_stage))
                 if run_log is not None:

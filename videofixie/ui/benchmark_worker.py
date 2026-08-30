@@ -52,7 +52,7 @@ class BenchmarkWorker(QObject):
         super().__init__()
         self.benchmark = benchmark
         self.variant_indices = tuple(range(len(benchmark.variants))) if variant_indices is None else variant_indices
-        self.max_parallel_jobs = min(max(1, max_parallel_jobs), 3)
+        self.max_parallel_jobs = min(max(1, max_parallel_jobs), 6)
         self.run_logs_root = run_logs_root
         self.run_dir: Path | None = None
         self.cancellation_token = CancellationToken()
@@ -229,6 +229,7 @@ class BenchmarkWorker(QObject):
             validation_stage = build_media_validation_stage(
                 job.output_path,
                 ffmpeg_path=media_validation_ffmpeg_path(job),
+                max_seconds=30.0,
             )
             self.stageStarted.emit(index, validation_stage.label, _stage_display(validation_stage))
             if variant_log is not None:
