@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from videofixie.backends.video2x import required_model_relative_paths
-from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG
+from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
 from videofixie.domain.jobs import TestSegment
 from videofixie.domain.media import MediaInfo
@@ -321,6 +321,98 @@ class VideoFixieServiceTest(unittest.TestCase):
         self.assertEqual({variant.preview.output_preset.slug for variant in benchmark.variants}, {"preview"})
         self.assertEqual({variant.preview.segment for variant in benchmark.variants}, {segment})
         self.assertTrue(all(variant.preview.job.stages[1].cwd.name == "video2x" for variant in benchmark.variants))
+
+    def test_plan_video2x_benchmark_with_context_adds_vapoursynth_quality_variants(self) -> None:
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={
+                "realcugan": ProcessorCapability("realcugan", ("models-pro",), supports_noise_level=True),
+            },
+            devices=(GpuDevice(3, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "/project/bin/video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+            vapoursynth=ToolStatus("vapoursynth", "/venv/bin/python", True, "VapourSynth R79"),
+            vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VapourSynth Video Processing Library R79"),
+            vapoursynth_plugins=("bs", "std", "resize"),
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+        segment = TestSegment("Face", 1, 6)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            models_dir = Path(tmp_dir) / "share" / "video2x" / "models"
+            for profile in (
+                _profile("realcugan", "models-pro", 2, None),
+                _profile("realcugan", "models-pro", 2, 0),
+            ):
+                _create_model_files_for_profile(models_dir, profile)
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings())
+            benchmark = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_video2x_benchmark_with_context(
+                "samples/1.mp4",
+                "cache/previews",
+                segment,
+                media=media,
+                environment=environment,
+            )
+
+        variants_by_slug = {variant.variant.profile.slug: variant for variant in benchmark.variants}
+        self.assertIn("benchmark-realcugan-models-pro-x2-default", variants_by_slug)
+        self.assertIn("vapoursynth-natural-x2", variants_by_slug)
+        self.assertIn("vapoursynth-lanczos-x2", variants_by_slug)
+        self.assertIn("vapoursynth-bicubic-x2", variants_by_slug)
+        self.assertEqual(variants_by_slug["benchmark-realcugan-models-pro-x2-default"].variant.backend_slug, VIDEO2X_BACKEND_SLUG)
+        self.assertEqual(variants_by_slug["vapoursynth-natural-x2"].variant.backend_slug, VAPOURSYNTH_BACKEND_SLUG)
+        self.assertEqual(variants_by_slug["vapoursynth-natural-x2"].preview.job.stages[1].label, "Run VapourSynth script")
+        self.assertEqual(variants_by_slug["vapoursynth-natural-x2"].preview.job.stages[2].label, "Encode and mux preview")
+
+    def test_plan_video2x_benchmark_with_context_can_plan_vapoursynth_only_variants(self) -> None:
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", None, False, error="Executable not found"),
+            video2x_capabilities=None,
+            preferred_gpu=None,
+            vapoursynth=ToolStatus("vapoursynth", "/venv/bin/python", True, "VapourSynth R79"),
+            vspipe=ToolStatus("vspipe", "/venv/bin/vspipe", True, "VSPipe R79"),
+            vapoursynth_plugins=("bs", "std", "resize"),
+        )
+        media = MediaInfo(
+            path="samples/1.mp4",
+            format_name="mp4",
+            duration_seconds=60,
+            bit_rate=100,
+            size_bytes=1000,
+            video_streams=(),
+            audio_streams=(),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = VideoFixieSettingsStore(Path(tmp_dir) / "settings.sqlite3")
+            store.save(AppSettings())
+            benchmark = VideoFixieService(project_root=tmp_dir, settings_store=store).plan_video2x_benchmark_with_context(
+                "samples/1.mp4",
+                "cache/previews",
+                TestSegment("Face", 1, 6),
+                media=media,
+                environment=environment,
+            )
+
+        self.assertEqual({variant.variant.backend_slug for variant in benchmark.variants}, {VAPOURSYNTH_BACKEND_SLUG})
+        self.assertEqual(len(benchmark.variants), 3)
 
     def test_plan_release_with_context_builds_non_destructive_output(self) -> None:
         capabilities = BackendCapabilities(

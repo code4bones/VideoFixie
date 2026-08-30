@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from videofixie.domain.backends import VIDEO2X_BACKEND_SLUG
 from videofixie.domain.profiles import ProcessingProfile
 
 
@@ -10,4 +11,4 @@ class Video2XBenchmarkVariant:
     profile: ProcessingProfile
     label: str
     parameters: str
-
+    backend_slug: str = VIDEO2X_BACKEND_SLUG

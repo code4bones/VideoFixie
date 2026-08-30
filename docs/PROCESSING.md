@@ -192,7 +192,7 @@ The default VapourSynth restoration profile is `vapoursynth-natural-x2`. It uses
 6. subtle source texture reintroduction with a high-frequency diff;
 7. final `YUV420P8` handoff to the existing encode/mux path.
 
-The Lanczos/Bicubic VapourSynth profiles remain available as resize baselines, not restoration profiles. External AI plugins and model parameters must be introduced only after their capabilities are detected and documented.
+The Lanczos/Bicubic VapourSynth profiles remain available as resize baselines, not restoration profiles. When VapourSynth and the required `bs` plugin are available, Variants should include Natural, Lanczos and Bicubic entries next to Video2X AI outputs so the user can judge whether the AI model is actually improving source detail or just smoothing it. External AI plugins and model parameters must be introduced only after their capabilities are detected and documented.
 
 ## Output resolution
 Do not force every source to 1920x1080.
@@ -251,8 +251,8 @@ The bootstrap step extracts the AppImage into ignored local runtime files under 
 
 Do not assume every RealCUGAN model supports every noise level. In the verified Video2X 6.4 AppImage model set, `models-pro` includes `up2x-no-denoise`, `up2x-conservative`, and `up2x-denoise3x`, but not `up2x-denoise1x`; `models-se` includes `up2x-denoise1x`. The current Video2X 6.4 CLI rejects `-n -1`, so conservative model files must not be treated as runnable through Video2X unless a future backend capability proves otherwise.
 
-## Video2X variant benchmark
-Video2X quality should be compared on identical source content before choosing a final profile. The Variants workflow builds several temporary Video2X profiles for the current TestSegment, prepares the shared preview source once, and runs Video2X variants through a bounded queue with the same preview output preset. The UI exposes a parallelism limit capped at 6 active Video2X variants, but defaults to 3 because memory and decoder-surface pressure can appear before CPU/GPU compute saturation. Use higher values only for manual throughput experiments after watching VRAM/RAM behavior.
+## Quality variant benchmark
+Restoration quality should be compared on identical source content before choosing a final profile. The Variants workflow builds temporary profiles for the current TestSegment, prepares the shared preview source once, and runs runnable Video2X and VapourSynth variants through a bounded queue with the same preview output preset. The UI exposes a parallelism limit capped at 6 active variants, but defaults to 3 because memory and decoder-surface pressure can appear before CPU/GPU compute saturation. Use higher values only for manual throughput experiments after watching VRAM/RAM behavior.
 Every Variants run writes diagnostics to `cache/runs/<run-id>/`: `shared-source.log` for the cut
 stage and `variant-XX-*.log` files for each tile. Logs include command, cwd, stdout, stderr,
 exit code, elapsed time and final status.
@@ -278,7 +278,8 @@ scale previews, without emitting fatal Vulkan output.
 Default live-action matrix:
 - RealCUGAN `models-pro`: default/no denoise, explicit noise 0 and denoise 3 where installed;
 - RealCUGAN `models-se`: default/no denoise, explicit noise 0 and denoise 1 where installed;
-- RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable.
+- RealESRGAN `realesrgan-plus` x4 only when capability and model-file validation says it is runnable;
+- VapourSynth Natural, Lanczos and Bicubic when VapourSynth, `vspipe` and required plugins are available.
 
 On hybrid Vulkan systems, RealESRGAN x4 can fail even when the selected Video2X device is NVIDIA:
 one diagnostic run printed RADV/AMD context-loss output and repeated `vkQueueSubmit failed -4`

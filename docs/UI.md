@@ -154,8 +154,8 @@ Desired later:
 
 Always synchronize time positions between original and processed preview.
 
-## Video2X variant grid
-The Variants tab benchmarks several practical Video2X live-action configurations on the current TestSegment without requiring the user to manually switch profiles between runs.
+## Quality variant grid
+The Variants tab benchmarks practical restoration profiles on the current TestSegment without requiring the user to manually switch profiles between runs. The initial set compares Video2X AI variants against VapourSynth Natural restoration and plain Lanczos/Bicubic resize baselines when the required runtime is available.
 The top toolbar in this tab is reserved for live resource telemetry only:
 - GPU load with a compact sparkline and current percent;
 - CPU load with a compact sparkline and current percent;
@@ -164,8 +164,8 @@ The top toolbar in this tab is reserved for live resource telemetry only:
 Initial grid behavior:
 - plan all variants from the same source segment and output preset;
 - run variants sequentially by default to avoid VRAM contention;
-- show an explicit queued/running/ready/failed state and keep a bounded active Video2X set;
-- expose a parallelism limit for advanced testing, capped at 6 active Video2X variants and defaulting to 3;
+- show an explicit queued/running/ready/failed state and keep a bounded active backend set;
+- expose a parallelism limit for advanced testing, capped at 6 active variants and defaulting to 3;
 - keep the run status aggregated by active/done/ready/failed counts instead of following only the last tile event;
 - show model, scale, noise mode, status, progress, elapsed time, observed fps and backend errors per tile;
 - continue after a single variant fails;
@@ -173,7 +173,7 @@ Initial grid behavior:
 - treat known fatal backend output markers as failed even when an output file was created;
 - keep exact commands and stage-specific environment overrides visible in Properties;
 - allow opening a completed tile in Large View;
-- allow applying a tile as the active Video2X processing profile.
+- allow applying a tile as the active processing backend/profile.
 
 Tiles should stay lightweight. Do not create a separate media player per variant tile; completed tiles open through the existing preview/Large View playback path.
 Each benchmark run writes one ignored diagnostics directory containing the shared-source log and a

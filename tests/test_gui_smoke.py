@@ -92,6 +92,7 @@ class GuiSmokeTest(unittest.TestCase):
             scale=2,
             noise_level=0,
         )
+        vapoursynth_profile = next(profile for profile in bundled_profiles() if profile.slug == "vapoursynth-lanczos-x2")
         media = MediaInfo(
             path="samples/1.mp4",
             format_name="mp4",
@@ -122,6 +123,12 @@ class GuiSmokeTest(unittest.TestCase):
             profile=profile,
             stages=(ProcessingStage("fake", PlannedCommand("python", ("-c", "pass"), "fake")),),
         )
+        vapoursynth_job = ProcessingJob(
+            source_path=Path("samples/1.mp4"),
+            output_path=Path("cache/previews/vapoursynth-variant.mp4"),
+            profile=vapoursynth_profile,
+            stages=(ProcessingStage("fake", PlannedCommand("python", ("-c", "pass"), "fake")),),
+        )
         benchmark = PlannedVideo2XBenchmark(
             media=media,
             environment=environment,
@@ -131,6 +138,21 @@ class GuiSmokeTest(unittest.TestCase):
                 PlannedBenchmarkVariant(
                     variant=Video2XBenchmarkVariant(profile, "RealCUGAN models-pro noise0", "realcugan / models-pro / x2 / no denoise"),
                     preview=PlannedPreview(media=media, environment=environment, profile=profile, segment=segment, job=job),
+                ),
+                PlannedBenchmarkVariant(
+                    variant=Video2XBenchmarkVariant(
+                        vapoursynth_profile,
+                        "VapourSynth Lanczos baseline",
+                        "vapoursynth / builtin-lanczos / x2 / no AI",
+                        backend_slug=VAPOURSYNTH_BACKEND_SLUG,
+                    ),
+                    preview=PlannedPreview(
+                        media=media,
+                        environment=environment,
+                        profile=vapoursynth_profile,
+                        segment=segment,
+                        job=vapoursynth_job,
+                    ),
                 ),
             ),
         )
@@ -174,6 +196,13 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(service.saved_settings.active_backend_slug, VIDEO2X_BACKEND_SLUG)
         self.assertFalse(hasattr(window.variant_tiles[0], "player"))
         self.assertFalse(hasattr(window.variant_tiles[0], "video_widget"))
+
+        window.apply_benchmark_variant(1)
+        app.processEvents()
+
+        self.assertEqual(window.profile_combo.currentData(), vapoursynth_profile.slug)
+        self.assertEqual(window.settings.active_backend_slug, VAPOURSYNTH_BACKEND_SLUG)
+        self.assertEqual(service.saved_settings.active_backend_slug, VAPOURSYNTH_BACKEND_SLUG)
 
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
-from videofixie.services.benchmarks import build_video2x_benchmark_variants
+from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
+from videofixie.services.benchmarks import build_vapoursynth_benchmark_variants, build_video2x_benchmark_variants
 from videofixie.backends.video2x import required_model_relative_paths
 
 
@@ -59,6 +60,25 @@ class Video2XBenchmarkMatrixTest(unittest.TestCase):
 
         self.assertEqual(variants, ())
 
+    def test_vapoursynth_matrix_adds_restoration_and_resize_baselines_when_plugins_are_available(self) -> None:
+        variants = build_vapoursynth_benchmark_variants(("bs", "std", "resize"))
+
+        slugs = [variant.profile.slug for variant in variants]
+        self.assertEqual(
+            slugs,
+            [
+                "vapoursynth-natural-x2",
+                "vapoursynth-lanczos-x2",
+                "vapoursynth-bicubic-x2",
+            ],
+        )
+        self.assertEqual({variant.backend_slug for variant in variants}, {VAPOURSYNTH_BACKEND_SLUG})
+        self.assertIn("texture retention", variants[0].parameters)
+        self.assertIn("no AI", variants[1].parameters)
+
+    def test_vapoursynth_matrix_is_empty_when_plugins_are_unknown(self) -> None:
+        self.assertEqual(build_vapoursynth_benchmark_variants(()), ())
+
 
 def _profile(processor: str, model: str, scale: int, noise_level: int | None):
     from videofixie.domain.profiles import ProcessingProfile
@@ -71,6 +91,7 @@ def _profile(processor: str, model: str, scale: int, noise_level: int | None):
         model=model,
         scale=scale,
         noise_level=noise_level,
+        compatible_backend_slugs=(VIDEO2X_BACKEND_SLUG,),
     )
 
 

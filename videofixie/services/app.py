@@ -19,7 +19,7 @@ from videofixie.domain.output_presets import OutputPreset, bundled_output_preset
 from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
 from videofixie.domain.release_presets import ReleasePreset, default_release_preset
 from videofixie.domain.settings import AppSettings
-from videofixie.services.benchmarks import build_video2x_benchmark_variants
+from videofixie.services.benchmarks import build_vapoursynth_benchmark_variants, build_video2x_benchmark_variants
 from videofixie.services.environment import MachineEnvironment, discover_environment
 from videofixie.services.history import PreviewResult, SavedCut, VideoFixieHistory
 from videofixie.services.planner import build_release_job, build_test_segment_job
@@ -305,33 +305,43 @@ class VideoFixieService:
             raise RuntimeError(f"ffmpeg is unavailable: {environment.ffmpeg.error}")
         if not environment.ffprobe.available or environment.ffprobe.path is None:
             raise RuntimeError(f"ffprobe is unavailable: {environment.ffprobe.error}")
-        if not environment.video2x.available or environment.video2x.path is None:
-            raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
 
         settings = self.load_settings()
-        selected_device = _selected_video2x_device(VIDEO2X_BACKEND_SLUG, environment, device_index)
-        selected_output_preset = output_preset or preview_output_preset()
         models_directory = _project_path(self.project_root, settings.models_directory)
-        variants = build_video2x_benchmark_variants(environment.video2x_capabilities, models_directory)
+        video2x_variants = build_video2x_benchmark_variants(environment.video2x_capabilities, models_directory)
+        vapoursynth_variants = _build_vapoursynth_benchmark_variants(environment)
+        selected_device = (
+            _selected_video2x_device(VIDEO2X_BACKEND_SLUG, environment, device_index)
+            if video2x_variants
+            else None
+        )
+        selected_output_preset = output_preset or preview_output_preset()
+        variants = (
+            *video2x_variants,
+            *vapoursynth_variants,
+        )
         if not variants:
-            raise RuntimeError(f"No runnable Video2X benchmark variants found. Models directory: {models_directory}")
+            raise RuntimeError(f"No runnable quality benchmark variants found. Models directory: {models_directory}")
 
         planned_variants: list[PlannedBenchmarkVariant] = []
         ffmpeg = FFmpegAdapter(ffmpeg_path=environment.ffmpeg.path, ffprobe_path=environment.ffprobe.path)
-        video2x = Video2XAdapter(environment.video2x.path)
         for variant in variants:
+            video2x = _video2x_benchmark_adapter(environment) if variant.backend_slug == VIDEO2X_BACKEND_SLUG else None
+            vapoursynth = _vapoursynth_benchmark_adapter(environment) if variant.backend_slug == VAPOURSYNTH_BACKEND_SLUG else None
             job = build_test_segment_job(
                 source_path=source_path,
                 work_dir=_project_path(self.project_root, work_dir),
                 profile=variant.profile,
                 segment=segment,
-                device_index=selected_device,
+                device_index=selected_device if variant.backend_slug == VIDEO2X_BACKEND_SLUG else None,
                 ffmpeg=ffmpeg,
                 video2x=video2x,
                 capabilities=environment.video2x_capabilities,
                 output_preset=selected_output_preset,
-                backend_slug=VIDEO2X_BACKEND_SLUG,
+                backend_slug=variant.backend_slug,
+                vapoursynth=vapoursynth,
                 models_directory=models_directory,
+                vapoursynth_plugins=environment.vapoursynth_plugins,
             )
             planned_variants.append(
                 PlannedBenchmarkVariant(
@@ -385,6 +395,27 @@ def _vapoursynth_adapter(active_backend_slug: str, environment: MachineEnvironme
         if active_backend_slug != VIDEO2X_BACKEND_SLUG:
             raise RuntimeError(f"Unknown processing backend: {active_backend_slug}")
         return None
+    if not environment.vspipe.available or environment.vspipe.path is None:
+        raise RuntimeError(f"vspipe is unavailable: {environment.vspipe.error}")
+    python_path = environment.vapoursynth.path or "python"
+    return VapourSynthAdapter(python_path=python_path, vspipe_path=environment.vspipe.path)
+
+
+def _build_vapoursynth_benchmark_variants(environment: MachineEnvironment) -> tuple[Video2XBenchmarkVariant, ...]:
+    if not environment.vapoursynth.available:
+        return ()
+    if not environment.vspipe.available or environment.vspipe.path is None:
+        return ()
+    return build_vapoursynth_benchmark_variants(environment.vapoursynth_plugins)
+
+
+def _video2x_benchmark_adapter(environment: MachineEnvironment) -> Video2XAdapter:
+    if not environment.video2x.available or environment.video2x.path is None:
+        raise RuntimeError(f"Video2X is unavailable: {environment.video2x.error}")
+    return Video2XAdapter(environment.video2x.path)
+
+
+def _vapoursynth_benchmark_adapter(environment: MachineEnvironment) -> VapourSynthAdapter:
     if not environment.vspipe.available or environment.vspipe.path is None:
         raise RuntimeError(f"vspipe is unavailable: {environment.vspipe.error}")
     python_path = environment.vapoursynth.path or "python"

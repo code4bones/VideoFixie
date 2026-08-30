@@ -2,15 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from videofixie.backends.vapoursynth import validate_pipeline_dependencies
 from videofixie.backends.video2x import missing_model_files, validate_profile
 from videofixie.domain.benchmarks import Video2XBenchmarkVariant
+from videofixie.domain.backends import VAPOURSYNTH_BACKEND_SLUG, VIDEO2X_BACKEND_SLUG
 from videofixie.domain.capabilities import BackendCapabilities
-from videofixie.domain.profiles import ProcessingProfile
+from videofixie.domain.profiles import ProcessingProfile, bundled_profiles
 
 
 REALCUGAN_LIVE_ACTION_MATRIX: tuple[tuple[str, tuple[int | None, ...]], ...] = (
     ("models-pro", (None, 0, 3)),
     ("models-se", (None, 0, 1)),
+)
+VAPOURSYNTH_QUALITY_VARIANT_SLUGS = (
+    "vapoursynth-natural-x2",
+    "vapoursynth-lanczos-x2",
+    "vapoursynth-bicubic-x2",
 )
 
 
@@ -31,6 +38,7 @@ def build_video2x_benchmark_variants(
                         profile=profile,
                         label=f"RealCUGAN {model} {_noise_label(noise_level)}",
                         parameters=f"realcugan / {model} / x2 / {_noise_label(noise_level)}",
+                        backend_slug=VIDEO2X_BACKEND_SLUG,
                     )
                 )
 
@@ -41,9 +49,40 @@ def build_video2x_benchmark_variants(
                 profile=realesrgan_profile,
                 label="RealESRGAN plus x4",
                 parameters="realesrgan / realesrgan-plus / x4 / no interpolation",
+                backend_slug=VIDEO2X_BACKEND_SLUG,
             )
         )
 
+    return tuple(variants)
+
+
+def build_vapoursynth_benchmark_variants(
+    available_plugins: tuple[str, ...],
+    profiles: tuple[ProcessingProfile, ...] | None = None,
+) -> tuple[Video2XBenchmarkVariant, ...]:
+    if not available_plugins:
+        return ()
+
+    variants: list[Video2XBenchmarkVariant] = []
+    profiles_by_slug = {profile.slug: profile for profile in (profiles or bundled_profiles())}
+    for slug in VAPOURSYNTH_QUALITY_VARIANT_SLUGS:
+        profile = profiles_by_slug.get(slug)
+        if profile is None:
+            continue
+        if not profile.supports_backend(VAPOURSYNTH_BACKEND_SLUG):
+            continue
+        try:
+            validate_pipeline_dependencies(profile, available_plugins)
+        except RuntimeError:
+            continue
+        variants.append(
+            Video2XBenchmarkVariant(
+                profile=profile,
+                label=_vapoursynth_label(profile),
+                parameters=_vapoursynth_parameters(profile),
+                backend_slug=VAPOURSYNTH_BACKEND_SLUG,
+            )
+        )
     return tuple(variants)
 
 
@@ -97,3 +136,20 @@ def _slug_noise(noise_level: int | None) -> str:
     if noise_level is None:
         return "default"
     return f"noise{noise_level}"
+
+
+def _vapoursynth_label(profile: ProcessingProfile) -> str:
+    if profile.model == "restoration-natural-v1":
+        return "VapourSynth Natural"
+    if profile.model == "builtin-lanczos":
+        return "VapourSynth Lanczos baseline"
+    if profile.model == "builtin-bicubic":
+        return "VapourSynth Bicubic baseline"
+    return profile.name
+
+
+def _vapoursynth_parameters(profile: ProcessingProfile) -> str:
+    scale = f"x{profile.scale}" if profile.scale is not None else "native scale"
+    if profile.model.startswith("builtin-"):
+        return f"vapoursynth / {profile.model} / {scale} / no AI"
+    return f"vapoursynth / {profile.model} / {scale} / cleanup + temporal denoise + texture retention"

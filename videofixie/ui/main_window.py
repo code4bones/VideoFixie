@@ -959,8 +959,8 @@ class MainWindow(QMainWindow):
             self.variant_status_label.setText("No variant selected")
             return
         variant = self.benchmark_plan.variants[tile.index].variant
-        if self.settings.active_backend_slug != VIDEO2X_BACKEND_SLUG:
-            self.settings = replace(self.settings, active_backend_slug=VIDEO2X_BACKEND_SLUG)
+        if self.settings.active_backend_slug != variant.backend_slug:
+            self.settings = replace(self.settings, active_backend_slug=variant.backend_slug)
             if hasattr(self.service, "save_settings"):
                 self.service.save_settings(self.settings)
         self._ensure_profile_available(variant.profile)
