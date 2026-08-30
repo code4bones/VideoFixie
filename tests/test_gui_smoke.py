@@ -298,9 +298,18 @@ class GuiSmokeTest(unittest.TestCase):
                 return environment
 
         window = MainWindow(service=FakeService())
+        window.source_path = Path("samples/1.mp4")
+        window._update_large_view_state()
         window.open_large_view()
         app.processEvents()
         self.assertTrue(window.video_widget.isFullScreen())
+
+        toggle_calls = []
+        window.toggle_playback = lambda: toggle_calls.append("toggle")
+        space_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(window.video_widget, space_event)
+        app.processEvents()
+        self.assertEqual(toggle_calls, ["toggle"])
 
         event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(window.video_widget, event)
@@ -309,21 +318,89 @@ class GuiSmokeTest(unittest.TestCase):
 
         window.processed_output_path = Path("samples/1.mp4")
         window.processed_segment = TestSegment("Preview", 10.0, 20.0, TestSegmentKind.CUSTOM)
+        window.tabs.setCurrentIndex(1)
+        app.processEvents()
+        self.assertTrue(window.large_view_button.isEnabled())
+        self.assertTrue(window.large_view_action.isEnabled())
+
         window.tabs.setCurrentIndex(2)
+        app.processEvents()
+        self.assertTrue(window.large_view_button.isEnabled())
+        self.assertTrue(window.large_view_action.isEnabled())
         window.open_large_view()
         app.processEvents()
         self.assertIsNotNone(window.large_split_window)
-        window.open_large_view()
+        self.assertIs(window.split_original_player.videoOutput(), window.split_original_widget)
+        self.assertIs(window.split_processed_player.videoOutput(), window.split_processed_widget)
+        self.assertFalse(window.large_split_window.isFullScreen())
+
+        split_toggle_calls = []
+        window.large_split_window.toggle_playback = lambda: split_toggle_calls.append("toggle")
+        split_space_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(window.large_split_window, split_space_event)
         app.processEvents()
-        self.assertIsNone(window.large_split_window)
+        self.assertEqual(split_toggle_calls, ["toggle"])
 
         window.open_large_view()
         app.processEvents()
-        self.assertIsNotNone(window.large_split_window)
-        split_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
-        QApplication.sendEvent(window.large_split_window, split_event)
-        app.processEvents()
         self.assertIsNone(window.large_split_window)
+        self.assertIs(window.split_original_player.videoOutput(), window.split_original_widget)
+        self.assertIs(window.split_processed_player.videoOutput(), window.split_processed_widget)
+
+    def test_playback_end_restarts_active_view(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+
+        from PySide6.QtMultimedia import QMediaPlayer
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.jobs import TestSegment, TestSegmentKind
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+
+        class FakeService:
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+        window = MainWindow(service=FakeService())
+        restart_calls = []
+        window._restart_active_playback_from_start = lambda: restart_calls.append(window.tabs.currentIndex())
+
+        window.tabs.setCurrentIndex(0)
+        window._on_media_status_changed(window.processed_player, QMediaPlayer.MediaStatus.EndOfMedia)
+        self.assertEqual(restart_calls, [])
+        window._on_media_status_changed(window.player, QMediaPlayer.MediaStatus.EndOfMedia)
+        self.assertEqual(restart_calls, [0])
+
+        window.processed_output_path = Path("samples/1.mp4")
+        window.processed_segment = TestSegment("Preview", 10.0, 20.0, TestSegmentKind.CUSTOM)
+        window.tabs.setCurrentIndex(2)
+        window._active_player_is_playing = lambda: True
+        window._on_split_original_position(20_000)
+        self.assertEqual(restart_calls[-1], 2)
+        app.processEvents()
 
     def test_load_source_restores_saved_cut_and_results(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

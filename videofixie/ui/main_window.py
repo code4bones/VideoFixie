@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self.preview_thread: QThread | None = None
         self.preview_worker: PreviewWorker | None = None
         self._syncing_playhead = False
+        self._restarting_playback = False
 
         self.setWindowTitle("VideoFixie")
         self.resize(1280, 820)
@@ -84,8 +85,8 @@ class MainWindow(QMainWindow):
         self.run_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "Run Preview")
         self.run_action.triggered.connect(self.toggle_preview)
 
-        large_view_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton), "Large View")
-        large_view_action.triggered.connect(self.open_large_view)
+        self.large_view_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMaxButton), "Large View")
+        self.large_view_action.triggered.connect(self.open_large_view)
 
         refresh_action = toolbar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "Refresh Env")
         refresh_action.triggered.connect(self._load_environment)
@@ -198,12 +199,14 @@ class MainWindow(QMainWindow):
         self.player.setVideoOutput(self.video_widget)
         self.player.positionChanged.connect(self._on_player_position)
         self.player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self.player.mediaStatusChanged.connect(lambda status: self._on_media_status_changed(self.player, status))
         self.processed_player = QMediaPlayer(self)
         self.processed_audio = QAudioOutput(self)
         self.processed_player.setAudioOutput(self.processed_audio)
         self.processed_player.setVideoOutput(self.processed_video_widget)
         self.processed_player.positionChanged.connect(self._on_processed_position)
         self.processed_player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self.processed_player.mediaStatusChanged.connect(lambda status: self._on_media_status_changed(self.processed_player, status))
         self.split_original_player = QMediaPlayer(self)
         self.split_original_audio = QAudioOutput(self)
         self.split_original_audio.setMuted(True)
@@ -211,11 +214,13 @@ class MainWindow(QMainWindow):
         self.split_original_player.setVideoOutput(self.split_original_widget)
         self.split_original_player.positionChanged.connect(self._on_split_original_position)
         self.split_original_player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self.split_original_player.mediaStatusChanged.connect(lambda status: self._on_media_status_changed(self.split_original_player, status))
         self.split_processed_player = QMediaPlayer(self)
         self.split_processed_audio = QAudioOutput(self)
         self.split_processed_player.setAudioOutput(self.split_processed_audio)
         self.split_processed_player.setVideoOutput(self.split_processed_widget)
         self.split_processed_player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self.split_processed_player.mediaStatusChanged.connect(lambda status: self._on_media_status_changed(self.split_processed_player, status))
 
         timeline_panel = QWidget()
         timeline_layout = QVBoxLayout(timeline_panel)
@@ -289,6 +294,7 @@ class MainWindow(QMainWindow):
         self.load_result_button.clicked.connect(self.load_selected_result)
         self.run_preview_button.clicked.connect(self.toggle_preview)
 
+        self._update_large_view_state()
         splitter.setSizes([360, 920])
 
     def _apply_style(self) -> None:
@@ -338,6 +344,7 @@ class MainWindow(QMainWindow):
         self.processed_output_path = None
         self.processed_segment = None
         self.saved_results = ()
+        self._update_large_view_state()
         self._update_source_info()
         duration = self.media.duration_seconds or 0.0
         self.timeline.set_duration(duration)
@@ -461,6 +468,9 @@ class MainWindow(QMainWindow):
         self._apply_preview_result(result)
 
     def open_large_view(self) -> None:
+        if not self._large_view_available():
+            self._update_large_view_state()
+            return
         index = self.tabs.currentIndex()
         if index == 0:
             self._toggle_video_fullscreen(self.video_widget)
@@ -479,10 +489,14 @@ class MainWindow(QMainWindow):
             if widget is not None
         )
         if watched in fullscreen_widgets and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Space and watched.isFullScreen():
+                self.toggle_playback()
+                return True
             if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_F11):
                 if watched.isFullScreen():
                     watched.setFullScreen(False)
                     self._refresh_video_outputs()
+                    self._update_large_view_state()
                     return True
         return super().eventFilter(watched, event)
 
@@ -559,6 +573,7 @@ class MainWindow(QMainWindow):
             self.timeline.set_playhead(segment.start_seconds, emit=False)
             self.tabs.setCurrentIndex(1)
             self._update_timeline_view()
+            self._update_large_view_state()
             self.processed_player.setPosition(0)
             self.processed_player.play()
             self._update_playback_button()
@@ -708,8 +723,10 @@ class MainWindow(QMainWindow):
             return
         source_time = milliseconds / 1000
         if self.processed_segment is not None and source_time >= self.processed_segment.end_seconds:
-            self.pause_active()
-            source_time = self.processed_segment.end_seconds
+            if self._active_player_is_playing() and not self._restarting_playback:
+                self._restart_active_playback_from_start()
+                return
+            source_time = self.processed_segment.start_seconds
         self._set_timeline_playhead(source_time)
         if self.processed_segment is not None:
             expected = self._processed_milliseconds_for_source_time(source_time)
@@ -750,11 +767,18 @@ class MainWindow(QMainWindow):
             self._seek_processed_from_source_time(source_time)
         elif index == 2:
             self._seek_split_from_source_time(source_time)
+        self._update_large_view_state()
         self._update_playback_button()
 
     def _on_playback_state_changed(self, state=None) -> None:
         del state
         self._update_playback_button()
+
+    def _on_media_status_changed(self, player: QMediaPlayer, status) -> None:
+        if self._restarting_playback:
+            return
+        if status == QMediaPlayer.MediaStatus.EndOfMedia and self._player_matches_active_view(player):
+            self._restart_active_playback_from_start()
 
     def _active_player_is_playing(self) -> bool:
         playing = QMediaPlayer.PlaybackState.PlayingState
@@ -763,6 +787,13 @@ class MainWindow(QMainWindow):
         if self.tabs.currentIndex() == 1:
             return self.processed_player.playbackState() == playing
         return self.split_original_player.playbackState() == playing or self.split_processed_player.playbackState() == playing
+
+    def _player_matches_active_view(self, player: QMediaPlayer) -> bool:
+        if self.tabs.currentIndex() == 0:
+            return player is self.player
+        if self.tabs.currentIndex() == 1:
+            return player is self.processed_player
+        return player in (self.split_original_player, self.split_processed_player)
 
     def _update_playback_button(self) -> None:
         if not hasattr(self, "play_button"):
@@ -778,6 +809,30 @@ class MainWindow(QMainWindow):
             self.timeline.set_playhead(seconds, emit=False)
         finally:
             self._syncing_playhead = False
+
+    def _restart_active_playback_from_start(self) -> None:
+        self._restarting_playback = True
+        try:
+            if self.tabs.currentIndex() == 0:
+                self.player.setPosition(0)
+                self._set_timeline_playhead(0)
+                self.player.play()
+            elif self.tabs.currentIndex() == 1:
+                if self.processed_segment is None or self.processed_output_path is None:
+                    self._update_playback_button()
+                    return
+                self._seek_processed_from_source_time(self.processed_segment.start_seconds)
+                self.processed_player.play()
+            else:
+                if self.processed_segment is None or self.processed_output_path is None:
+                    self._update_playback_button()
+                    return
+                self._seek_split_from_source_time(self.processed_segment.start_seconds)
+                self.split_processed_player.play()
+                self.split_original_player.play()
+        finally:
+            self._restarting_playback = False
+        self._update_playback_button()
 
     def _seek_processed_from_source_time(self, source_time: float) -> None:
         if self.processed_segment is None:
@@ -833,12 +888,8 @@ class MainWindow(QMainWindow):
     def _refresh_video_outputs(self) -> None:
         self.player.setVideoOutput(self.video_widget)
         self.processed_player.setVideoOutput(self.processed_video_widget)
-        if self.large_split_window is None:
-            self.split_original_player.setVideoOutput(self.split_original_widget)
-            self.split_processed_player.setVideoOutput(self.split_processed_widget)
-        else:
-            self.split_original_player.setVideoOutput(self.large_split_window.original_widget)
-            self.split_processed_player.setVideoOutput(self.large_split_window.processed_widget)
+        self.split_original_player.setVideoOutput(self.split_original_widget)
+        self.split_processed_player.setVideoOutput(self.split_processed_widget)
         if self.processed_output_path is not None:
             source_url = QUrl.fromLocalFile(str(self.processed_output_path.resolve()))
             if self.processed_player.source() != source_url:
@@ -907,6 +958,7 @@ class MainWindow(QMainWindow):
         self._set_timeline_playhead(segment.start_seconds)
         self.tabs.setCurrentIndex(1)
         self._update_timeline_view()
+        self._update_large_view_state()
         self._seek_processed_from_source_time(segment.start_seconds)
         self.preview_status.setText(f"Loaded saved result: {result.output_path.name}")
 
@@ -921,29 +973,60 @@ class MainWindow(QMainWindow):
             self.output_combo.setCurrentIndex(index)
 
     def _open_large_split_view(self) -> None:
-        if self.processed_output_path is None:
+        if self.source_path is None or self.processed_output_path is None or self.processed_segment is None:
+            self._update_large_view_state()
             return
         if self.large_split_window is not None:
             self.large_split_window.close()
             return
         self.pause_active()
-        self.large_split_window = LargeSplitWindow(self._restore_split_video_outputs)
-        self.large_split_window.showMaximized()
-        self._refresh_video_outputs()
-        self._seek_split_from_source_time(self.timeline_playhead_seconds())
-        self.split_processed_player.play()
-        self.split_original_player.play()
+        self.large_split_window = LargeSplitWindow(
+            source_path=self.source_path,
+            processed_path=self.processed_output_path,
+            segment=self.processed_segment,
+            source_time=self.timeline_playhead_seconds(),
+            on_close=self._restore_split_video_outputs,
+        )
+        self.large_split_window.show()
+        self.large_split_window.play()
 
     def _restore_split_video_outputs(self) -> None:
         self.pause_active()
         self.large_split_window = None
-        self.split_original_player.setVideoOutput(self.split_original_widget)
-        self.split_processed_player.setVideoOutput(self.split_processed_widget)
+        self._refresh_video_outputs()
+        self._update_large_view_state()
 
     def _toggle_video_fullscreen(self, widget: QVideoWidget) -> None:
         widget.setFullScreen(not widget.isFullScreen())
         if not widget.isFullScreen():
             self._refresh_video_outputs()
+        self._update_large_view_state()
+
+    def _large_view_available(self) -> bool:
+        if not hasattr(self, "tabs"):
+            return False
+        if self.tabs.currentIndex() == 0:
+            return self.source_path is not None or self.player.source().isValid()
+        if self.tabs.currentIndex() == 1:
+            return self.processed_output_path is not None
+        return self.source_path is not None and self.processed_output_path is not None and self.processed_segment is not None
+
+    def _update_large_view_state(self) -> None:
+        if not hasattr(self, "large_view_button"):
+            return
+        enabled = self._large_view_available()
+        self.large_view_button.setEnabled(enabled)
+        self.large_view_action.setEnabled(enabled)
+        if self.tabs.currentIndex() == 2 and not enabled:
+            reason = "Run or load a processed preview first"
+        elif self.tabs.currentIndex() == 1 and self.processed_output_path is None:
+            reason = "Run or load a processed preview first"
+        elif self.tabs.currentIndex() == 0 and self.source_path is None and not self.player.source().isValid():
+            reason = "Open a source video first"
+        else:
+            reason = "Open Large View"
+        self.large_view_button.setToolTip(reason)
+        self.large_view_action.setToolTip(reason)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self.preview_worker is not None:
@@ -958,10 +1041,21 @@ class MainWindow(QMainWindow):
 
 
 class LargeSplitWindow(QWidget):
-    def __init__(self, on_close) -> None:
+    def __init__(
+        self,
+        source_path: Path,
+        processed_path: Path,
+        segment: TestSegment,
+        source_time: float,
+        on_close,
+    ) -> None:
         super().__init__()
         self._on_close = on_close
+        self.segment = segment
+        self._restarting_playback = False
         self.setWindowTitle("VideoFixie - Split Compare")
+        self.resize(1600, 720)
+        self.setMinimumSize(900, 360)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -971,13 +1065,100 @@ class LargeSplitWindow(QWidget):
         layout.addWidget(self.processed_widget, 1)
         self.setStyleSheet("QWidget { background: #050609; }")
 
+        self.original_player = QMediaPlayer(self)
+        self.original_audio = QAudioOutput(self)
+        self.original_audio.setMuted(True)
+        self.original_player.setAudioOutput(self.original_audio)
+        self.original_player.setVideoOutput(self.original_widget)
+        self.original_player.setSource(QUrl.fromLocalFile(str(source_path.resolve())))
+        self.original_player.positionChanged.connect(self._on_original_position)
+        self.original_player.mediaStatusChanged.connect(self._on_media_status_changed)
+
+        self.processed_player = QMediaPlayer(self)
+        self.processed_audio = QAudioOutput(self)
+        self.processed_player.setAudioOutput(self.processed_audio)
+        self.processed_player.setVideoOutput(self.processed_widget)
+        self.processed_player.setSource(QUrl.fromLocalFile(str(processed_path.resolve())))
+        self.processed_player.mediaStatusChanged.connect(self._on_media_status_changed)
+
+        self.seek_source_time(source_time)
+
+    def play(self) -> None:
+        self.processed_player.play()
+        self.original_player.play()
+
+    def pause(self) -> None:
+        self.original_player.pause()
+        self.processed_player.pause()
+
+    def toggle_playback(self) -> None:
+        if self._is_playing():
+            self.pause()
+        else:
+            self.play()
+
+    def seek_source_time(self, source_time: float) -> None:
+        local_ms = self._processed_milliseconds_for_source_time(source_time)
+        mapped_source_time = self.segment.start_seconds + local_ms / 1000
+        self.original_player.setPosition(round(mapped_source_time * 1000))
+        self.processed_player.setPosition(self._playback_milliseconds_for_processed_milliseconds(local_ms))
+
+    def _on_original_position(self, milliseconds: int) -> None:
+        source_time = milliseconds / 1000
+        if source_time >= self.segment.end_seconds:
+            if self._is_playing() and not self._restarting_playback:
+                self._restart_from_start()
+            return
+        expected = self._processed_milliseconds_for_source_time(source_time)
+        playback_position = self._playback_milliseconds_for_processed_milliseconds(expected)
+        if abs(self.processed_player.position() - playback_position) > 350:
+            self.processed_player.setPosition(playback_position)
+
+    def _on_media_status_changed(self, status) -> None:
+        if self._restarting_playback:
+            return
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self._restart_from_start()
+
+    def _restart_from_start(self) -> None:
+        self._restarting_playback = True
+        try:
+            self.seek_source_time(self.segment.start_seconds)
+            self.processed_player.play()
+            self.original_player.play()
+        finally:
+            self._restarting_playback = False
+
+    def _processed_milliseconds_for_source_time(self, source_time: float) -> int:
+        local_seconds = source_time - self.segment.start_seconds
+        local_seconds = min(max(0.0, local_seconds), self.segment.duration_seconds)
+        return round(local_seconds * 1000)
+
+    def _playback_milliseconds_for_processed_milliseconds(self, milliseconds: int) -> int:
+        duration_ms = round(self.segment.duration_seconds * 1000)
+        if duration_ms <= 40:
+            return max(0, min(milliseconds, duration_ms))
+        return min(max(0, milliseconds), duration_ms - 40)
+
+    def _is_playing(self) -> bool:
+        playing = QMediaPlayer.PlaybackState.PlayingState
+        return self.original_player.playbackState() == playing or self.processed_player.playbackState() == playing
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Space:
+            self.toggle_playback()
+            return
         if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_F11):
             self.close()
             return
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self.pause()
+        self.original_player.setVideoOutput(None)
+        self.processed_player.setVideoOutput(None)
+        self.original_player.setSource(QUrl())
+        self.processed_player.setSource(QUrl())
         self._on_close()
         super().closeEvent(event)
 

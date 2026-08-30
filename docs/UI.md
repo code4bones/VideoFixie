@@ -126,6 +126,7 @@ At minimum support:
 - Original
 - Processed
 - side-by-side
+- resizable large side-by-side window for Split comparison
 
 Desired later:
 - draggable split/wipe;

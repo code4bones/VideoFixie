@@ -48,6 +48,7 @@ Use `Profile` for AI/model/scale/noise selection and `Output` for the encoding p
 The same button changes to `Cancel Preview` while the job is running.
 The preview runs in the background, can be cancelled, writes logs into the command panel, and opens the result in the `Processed` tab when finished.
 IN/OUT fields accept exact timecodes such as `12.5`, `1:02.500`, or `1:02:03.250`.
+`Large View` opens fullscreen playback for Original/Processed and a separate resizable side-by-side window for Split; Space toggles play/stop there.
 
 Preview cuts and result history are persisted in a local SQLite database:
 
