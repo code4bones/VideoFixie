@@ -121,7 +121,7 @@ video2x ...
 Provide a copy button. This is important both for debugging and for expert users.
 
 ## Saved Cuts
-The main preview controls should separate reusable ranges from rendered outputs. `Cut` lists named source-specific ranges and restores IN/OUT, kind, profile and output preset. `Result` lists generated preview files for visual comparison. Saving a cut with an existing label updates that cut only; other ranges for the same source remain available.
+The main preview controls should separate reusable ranges from rendered outputs. `Save Cut` should ask for a cut name before storing the current IN/OUT, kind, profile and output preset. `Load Cut` should open an explicit choice dialog and keep the inline `Cut` selector synchronized with the loaded range. `Result` lists generated preview files for visual comparison. Saving a cut with an existing label updates that cut only; other ranges for the same source remain available.
 
 ## Release Preset Wizard
 Final export settings should be guided by a wizard rather than a single dense form. Each page should explain the current decision, visibly mark a safe contextual default as Recommended, and keep alternatives available. The final page must show both a human summary and exact technical settings.

@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -493,10 +495,35 @@ class MainWindow(QMainWindow):
         if self.source_path is None:
             self.preview_status.setText("Open a source video before saving a cut")
             return
+        segment = self._current_segment()
+        name, accepted = QInputDialog.getText(
+            self,
+            "Save Cut",
+            "Cut name",
+            QLineEdit.EchoMode.Normal,
+            segment.label,
+        )
+        if not accepted:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Could not save cut", "Cut name must not be empty")
+            return
+        segment = TestSegment(
+            label=name,
+            kind=segment.kind,
+            start_seconds=segment.start_seconds,
+            end_seconds=segment.end_seconds,
+        )
+        self._suppress_planning = True
+        try:
+            self._set_segment(segment)
+        finally:
+            self._suppress_planning = False
         try:
             saved_cut = self.service.save_source_segment(
                 self.source_path,
-                self._current_segment(),
+                segment,
                 self._selected_profile().slug,
                 self._selected_output_preset().slug,
                 backend_slug=self.settings.active_backend_slug,
@@ -508,10 +535,11 @@ class MainWindow(QMainWindow):
         self._refresh_saved_cuts()
         self._select_saved_cut(saved_cut)
         self._refresh_saved_results()
+        self._update_profile_summary()
 
     def load_selected_cut(self) -> None:
-        cut = self.cut_combo.currentData()
-        if not isinstance(cut, SavedCut):
+        cut = self._prompt_for_cut_to_load()
+        if cut is None:
             self.preview_status.setText("No saved cut selected")
             return
         self._suppress_planning = True
@@ -522,6 +550,33 @@ class MainWindow(QMainWindow):
             self._suppress_planning = False
         self._update_profile_summary()
         self.preview_status.setText(f"Loaded cut: {cut.segment.label}")
+
+    def _prompt_for_cut_to_load(self) -> SavedCut | None:
+        cuts = tuple(cut for cut in self.saved_cuts if isinstance(cut, SavedCut))
+        if not cuts:
+            return None
+        labels = [_cut_text(cut) for cut in cuts]
+        current_cut = self.cut_combo.currentData()
+        current_index = 0
+        if isinstance(current_cut, SavedCut):
+            for index, cut in enumerate(cuts):
+                if _same_cut(cut, current_cut):
+                    current_index = index
+                    break
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "Load Cut",
+            "Cut",
+            labels,
+            current_index,
+            False,
+        )
+        if not accepted:
+            return None
+        try:
+            return cuts[labels.index(selected)]
+        except ValueError:
+            return None
 
     def load_selected_result(self) -> None:
         result = self.result_combo.currentData()

@@ -56,9 +56,9 @@ VapourSynth preview profiles currently use BestSource plus built-in resize filte
 
 Preview cuts and result history are persisted in a local SQLite database:
 
-- `Save Cut` stores the current named segment, selected backend/profile and output preset for the source file;
+- `Save Cut` asks for a cut name, then stores the segment, selected backend/profile and output preset for the source file;
 - a source can have multiple saved cuts, shown in the `Cut` list;
-- `Load Cut` restores the selected segment and its profile/output choices;
+- `Load Cut` opens a choice dialog and restores the selected segment and its profile/output choices;
 - reopening the same file restores the most recently saved cut;
 - opening a different filename without saved cuts resets the timeline to the default preview range;
 - successful preview runs are added to the `Result` list with links to output files;

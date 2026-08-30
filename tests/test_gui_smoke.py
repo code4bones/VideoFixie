@@ -803,6 +803,7 @@ class GuiSmokeTest(unittest.TestCase):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from pathlib import Path
+        from unittest.mock import patch
 
         from PySide6.QtWidgets import QApplication
 
@@ -910,13 +911,91 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(window.cut_combo.count(), 2)
         self.assertEqual(window._current_segment(), face.segment)
 
-        window.cut_combo.setCurrentIndex(1)
-        window.load_selected_cut()
+        with patch("videofixie.ui.main_window.QInputDialog.getItem", return_value=(window.cut_combo.itemText(1), True)):
+            window.load_selected_cut()
         app.processEvents()
 
         self.assertEqual(window._current_segment(), motion.segment)
         self.assertEqual(window.profile_combo.currentData(), "balanced-realcugan-x2")
         self.assertEqual(window.output_combo.currentData(), "balanced")
+
+    def test_save_cut_prompts_for_name(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from PySide6.QtWidgets import QApplication
+
+        from videofixie.domain.capabilities import BackendCapabilities, GpuDevice, ProcessorCapability
+        from videofixie.domain.jobs import TestSegment, TestSegmentKind
+        from videofixie.domain.profiles import bundled_profiles
+        from videofixie.services.environment import MachineEnvironment, ToolStatus
+        from videofixie.services.history import SavedCut
+        from videofixie.ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        profiles = bundled_profiles()
+        capabilities = BackendCapabilities(
+            name="Video2X",
+            version="6.4.0",
+            processors={"realcugan": ProcessorCapability("realcugan", ("models-se",), supports_noise_level=True)},
+            devices=(GpuDevice(0, "NVIDIA", "Discrete GPU"),),
+        )
+        environment = MachineEnvironment(
+            ffmpeg=ToolStatus("ffmpeg", "/usr/bin/ffmpeg", True),
+            ffprobe=ToolStatus("ffprobe", "/usr/bin/ffprobe", True),
+            video2x=ToolStatus("video2x", "video2x", True, "6.4.0"),
+            video2x_capabilities=capabilities,
+            preferred_gpu=capabilities.devices[0],
+        )
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.saved_cut: SavedCut | None = None
+
+            def profiles(self):
+                return profiles
+
+            def discover_environment(self):
+                return environment
+
+            def save_source_segment(self, source_path, segment, profile_slug=None, output_preset_slug=None, backend_slug=None):
+                self.saved_cut = SavedCut(
+                    id=7,
+                    source_name=Path(source_path).name,
+                    source_path=Path(source_path),
+                    segment=segment,
+                    profile_slug=profile_slug,
+                    output_preset_slug=output_preset_slug,
+                    backend_slug=backend_slug,
+                    updated_at="2026-08-30T14:05:00+00:00",
+                )
+                return self.saved_cut
+
+            def saved_cuts_for_source(self, path):
+                del path
+                return (self.saved_cut,) if self.saved_cut is not None else ()
+
+            def preview_results_for_source(self, path):
+                del path
+                return ()
+
+        service = FakeService()
+        window = MainWindow(service=service)
+        window.source_path = Path("/media/clip.mp4")
+        window._set_segment(TestSegment("Preview", 3.0, 9.0, TestSegmentKind.DETAIL))
+
+        with patch("videofixie.ui.main_window.QInputDialog.getText", return_value=("Named Detail", True)):
+            window.save_current_cut()
+        app.processEvents()
+
+        self.assertIsNotNone(service.saved_cut)
+        assert service.saved_cut is not None
+        self.assertEqual(service.saved_cut.segment.label, "Named Detail")
+        self.assertEqual(window.segment_label.currentText(), "Named Detail")
+        self.assertEqual(window.cut_combo.count(), 1)
+        self.assertIs(window.cut_combo.currentData(), service.saved_cut)
 
     def test_opening_different_filename_without_cuts_resets_timeline(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
