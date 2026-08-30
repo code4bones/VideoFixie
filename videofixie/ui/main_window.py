@@ -11,6 +11,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QComboBox,
+    QApplication,
     QDialog,
     QFileDialog,
     QGridLayout,
@@ -384,6 +385,9 @@ class MainWindow(QMainWindow):
 
         self._apply_settings_defaults_to_controls()
         self._update_large_view_state()
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -773,6 +777,10 @@ class MainWindow(QMainWindow):
                 self.open_benchmark_variant(tile.index)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Space:
+            if self._should_handle_global_space(watched):
+                self.toggle_playback()
+                return True
         fullscreen_widgets = tuple(
             widget
             for widget in (getattr(self, "video_widget", None), getattr(self, "processed_video_widget", None))
@@ -791,6 +799,18 @@ class MainWindow(QMainWindow):
                     self._update_large_view_state()
                     return True
         return super().eventFilter(watched, event)
+
+    def _should_handle_global_space(self, watched) -> bool:
+        if QApplication.activeModalWidget() is not None:
+            return False
+        if isinstance(watched, (QLineEdit, QPlainTextEdit)):
+            return False
+        if watched is not self and not (isinstance(watched, QWidget) and watched.window() is self):
+            return False
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QPlainTextEdit)):
+            return False
+        return True
 
     def _toggle_fullscreen_ab_view(self, watched) -> bool:
         if self.source_path is None or self.processed_output_path is None or self.processed_segment is None:
@@ -1910,6 +1930,9 @@ class MainWindow(QMainWindow):
         self.large_view_action.setToolTip(reason)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
         self.metrics_sampler.stop()
         if self.preview_worker is not None:
             self.preview_worker.cancel()

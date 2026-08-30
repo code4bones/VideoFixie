@@ -207,6 +207,8 @@ class GuiSmokeTest(unittest.TestCase):
     def test_trigger_buttons_and_timecode_inputs_are_wired(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+        from PySide6.QtCore import QEvent, Qt
+        from PySide6.QtGui import QKeyEvent
         from PySide6.QtWidgets import QApplication
 
         from videofixie.ui.main_window import MainWindow
@@ -240,6 +242,29 @@ class GuiSmokeTest(unittest.TestCase):
         window._set_preview_running(False)
         self.assertEqual(window.run_preview_button.text(), "Run Preview")
         self.assertEqual(window.run_action.text(), "Run Preview")
+
+        toggle_calls = []
+        clicked_calls = []
+        window.toggle_playback = lambda: toggle_calls.append("toggle")
+        window.play_button.clicked.connect(lambda: clicked_calls.append("clicked"))
+        window.play_button.setFocus()
+        QApplication.sendEvent(
+            window.play_button,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " "),
+        )
+        app.processEvents()
+
+        self.assertEqual(toggle_calls, ["toggle"])
+        self.assertEqual(clicked_calls, [])
+
+        window.segment_label.lineEdit().setFocus()
+        QApplication.sendEvent(
+            window.segment_label.lineEdit(),
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " "),
+        )
+        app.processEvents()
+
+        self.assertEqual(toggle_calls, ["toggle"])
 
     def test_release_preset_wizard_builds_recommended_summary(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
